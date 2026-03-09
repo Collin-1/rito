@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rito</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="hero">
+        <h1>Rito</h1>
+        <p>Voice Accessibility Assistant</p>
+      </header>
+
+      <section class="panel key-panel">
+        <label for="apiKey">OpenAI API Key</label>
+        <div class="row">
+          <input id="apiKey" type="password" placeholder="sk-..." />
+          <button id="saveKeyBtn" class="secondary">Save</button>
+        </div>
+      </section>
+
+      <section class="panel voice-panel">
+        <div class="row">
+          <button id="micBtn" class="mic-btn" aria-label="Start voice command">
+            Start Voice
+          </button>
+          <select id="voiceLang" title="Voice language">
+            <option value="auto" selected>Auto</option>
+            <option value="en-US">English</option>
+            <option value="ts-ZA">Xitsonga</option>
+            <option value="zu-ZA">Zulu</option>
+            <option value="nso-ZA">Sepedi</option>
+          </select>
+        </div>
+        <p class="hint">
+          Speak naturally: "Open YouTube and search Python tutorials"
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>Transcript</h2>
+        <div id="transcript" class="output">Waiting for voice command...</div>
+      </section>
+
+      <section class="panel">
+        <h2>AI Response</h2>
+        <div id="aiResponse" class="output">No response yet.</div>
+      </section>
+
+      <section class="panel action-grid">
+        <button id="summarizeBtn">Summarize Page</button>
+        <button id="readBtn">Read Page</button>
+        <button id="simplifyBtn">Simplify Text</button>
+        <button id="highlightBtn">Highlight Points</button>
+        <button id="readSummaryBtn" class="secondary">Read Summary</button>
+      </section>
+
+      <section class="panel action-grid compact">
+        <button id="pauseBtn" class="secondary">Pause</button>
+        <button id="resumeBtn" class="secondary">Resume</button>
+        <button id="stopBtn" class="secondary">Stop</button>
+      </section>
+
+      <footer>
+        <span id="status">Ready</span>
+      </footer>
+    </main>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
