@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Rito - AI Voice Accessibility Copilot",
+  "version": "0.1.0",
+  "description": "Control the web with your voice.",
+  "permissions": ["activeTab", "tabs", "scripting", "storage"],
+  "host_permissions": ["<all_urls>", "https://api.openai.com/*"],
+  "action": {
+    "default_title": "Rito",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
