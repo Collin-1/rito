@@ -9,9 +9,13 @@ const statusEl = document.getElementById("status");
 init();
 
 async function init() {
-  const stored = await chrome.storage.local.get(["openaiApiKey"]);
-  if (stored.openaiApiKey) {
-    apiKeyInput.value = stored.openaiApiKey;
+  const stored = await chrome.storage.local.get([
+    "geminiApiKey",
+    "openaiApiKey",
+  ]);
+  const key = stored.geminiApiKey || stored.openaiApiKey;
+  if (key) {
+    apiKeyInput.value = key;
   }
 
   saveBtn.addEventListener("click", saveKey);
@@ -27,6 +31,7 @@ async function saveKey() {
   }
 
   await chrome.storage.local.set({ openaiApiKey: key });
+  await chrome.storage.local.set({ geminiApiKey: key });
   setStatus("API key saved successfully.", false);
 }
 
