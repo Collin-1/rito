@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rito Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>Rito Settings</h1>
+      <p class="subtitle">
+        Set your OpenAI API key from this page if the popup icon is unavailable.
+      </p>
+
+      <section class="panel">
+        <label for="apiKey">OpenAI API Key</label>
+        <div class="row">
+          <input
+            id="apiKey"
+            type="password"
+            placeholder="sk-..."
+            autocomplete="off"
+          />
+          <button id="saveBtn">Save</button>
+        </div>
+        <p class="hint">
+          Your key is stored locally in Chrome extension storage on this device.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>Quick Check</h2>
+        <button id="testBtn" class="secondary">
+          Test Background Connection
+        </button>
+        <pre id="result">No checks run yet.</pre>
+      </section>
+
+      <p id="status">Ready</p>
+    </main>
+
+    <script src="options.js"></script>
+  </body>
+</html>
