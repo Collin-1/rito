@@ -38,9 +38,13 @@ let latestSummary = "";
 init();
 
 async function init() {
-  const saved = await chrome.storage.local.get(["openaiApiKey"]);
-  if (saved.openaiApiKey) {
-    elements.apiKey.value = saved.openaiApiKey;
+  const saved = await chrome.storage.local.get([
+    "geminiApiKey",
+    "openaiApiKey",
+  ]);
+  const key = saved.geminiApiKey || saved.openaiApiKey;
+  if (key) {
+    elements.apiKey.value = key;
   }
 
   elements.saveKeyBtn.addEventListener("click", saveApiKey);
@@ -94,75 +98,92 @@ async function init() {
 
 async function saveApiKey() {
   const key = elements.apiKey.value.trim();
-  await chrome.storage.local.set({ openaiApiKey: key });
+  await chrome.storage.local.set({ geminiApiKey: key });
   setStatus("API key saved.", "success");
 }
 
 export async function startSpeechRecognition() {
-  const SpeechRecognition =
-    window.SpeechRecognition || window.webkitSpeechRecognition;
-
-  if (!SpeechRecognition) {
-    setStatus("Speech recognition is not supported in this browser.", "error");
-    return;
-  }
-
-  const recognition = new SpeechRecognition();
-  recognition.continuous = false;
-  recognition.interimResults = false;
-
-  // Auto mode keeps a broad default and lets AI detect/translate the transcript.
   const selectedLang = elements.voiceLang.value;
-  recognition.lang = selectedLang === "auto" ? "en-US" : selectedLang;
+  const lang = selectedLang === "auto" ? "en-US" : selectedLang;
 
   elements.micBtn.disabled = true;
   elements.micBtn.textContent = "Listening...";
-  setStatus("Listening for your command...", "");
+  setStatus("Listening on the current page...", "");
 
   try {
-    // Trigger the browser microphone permission flow for reliable recognition.
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((track) => track.stop());
-  } catch (error) {
-    elements.micBtn.disabled = false;
-    elements.micBtn.textContent = "Start Voice";
-    setStatus(
-      "Microphone permission blocked. Allow mic access in site settings.",
-      "error",
-    );
-    elements.aiResponse.textContent = `Mic permission error: ${error.message}`;
-    return;
-  }
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
 
-  recognition.onresult = async (event) => {
-    const transcript = event.results?.[0]?.[0]?.transcript?.trim() || "";
+    if (!tab?.id) {
+      throw new Error("No active tab found.");
+    }
+
+    if (isRestrictedUrl(tab.url)) {
+      throw new Error(
+        "Voice capture cannot run on this page. Open a normal website tab and try again.",
+      );
+    }
+
+    const response = await sendMessageWithAutoInject(tab.id, {
+      type: "CAPTURE_VOICE_COMMAND",
+      lang,
+    });
+
+    if (!response?.ok) {
+      throw new Error(
+        response?.message || "Voice capture failed on this page.",
+      );
+    }
+
+    const transcript = String(response.transcript || "").trim();
     elements.transcript.textContent = transcript || "No speech detected.";
 
-    if (transcript) {
-      await handleVoiceCommand(transcript);
+    if (!transcript) {
+      setStatus("No speech detected. Try again.", "error");
+      return;
     }
-  };
 
-  recognition.onerror = (event) => {
-    const msg = `Speech error: ${event.error}. Try typing the command below.`;
-    setStatus(msg, "error");
-    elements.aiResponse.textContent = msg;
-  };
-
-  recognition.onend = () => {
-    elements.micBtn.disabled = false;
-    elements.micBtn.textContent = "Start Voice";
-  };
-
-  try {
-    recognition.start();
+    await handleVoiceCommand(transcript);
   } catch (error) {
+    setStatus(`Could not start voice capture: ${error.message}`, "error");
+    elements.aiResponse.textContent =
+      "Voice capture could not start on this tab. Use the text command fallback to continue demo.";
+  } finally {
     elements.micBtn.disabled = false;
     elements.micBtn.textContent = "Start Voice";
-    setStatus(`Could not start speech recognition: ${error.message}`, "error");
-    elements.aiResponse.textContent =
-      "Voice capture could not start. Use the text command fallback to continue demo.";
   }
+}
+
+async function sendMessageWithAutoInject(tabId, message) {
+  try {
+    return await chrome.tabs.sendMessage(tabId, message);
+  } catch (error) {
+    const text = String(error?.message || error);
+
+    if (!text.includes("Receiving end does not exist")) {
+      throw error;
+    }
+
+    // Inject content script into already-open pages, then retry message once.
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content.js"],
+    });
+
+    return chrome.tabs.sendMessage(tabId, message);
+  }
+}
+
+function isRestrictedUrl(url) {
+  const value = String(url || "");
+  return (
+    value.startsWith("chrome://") ||
+    value.startsWith("edge://") ||
+    value.startsWith("about:") ||
+    value.startsWith("chrome-extension://")
+  );
 }
 
 async function handleVoiceCommand(transcript) {
@@ -171,6 +192,9 @@ async function handleVoiceCommand(transcript) {
 
     const intent = await parseIntent(transcript);
     const metadata = `Language: ${intent.detected_language} | Interpreted: ${intent.english_command}`;
+    const fallbackNote = intent.fallback_note
+      ? `\nMode: ${intent.fallback_note}`
+      : "";
 
     const actionResult = await executeAction(intent);
 
@@ -178,7 +202,7 @@ async function handleVoiceCommand(transcript) {
       latestSummary = actionResult.summary;
     }
 
-    elements.aiResponse.textContent = `${metadata}\n\n${actionResult.message}`;
+    elements.aiResponse.textContent = `${metadata}${fallbackNote}\n\n${actionResult.message}`;
     setStatus(
       actionResult.ok ? "Action completed." : "Action not completed.",
       actionResult.ok ? "success" : "error",
