@@ -63,6 +63,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           sendResponse({ ok: true });
           return;
         }
+        case "CAPTURE_VOICE_COMMAND": {
+          const transcript = await captureVoiceCommand(message.lang || "en-US");
+          sendResponse({ ok: true, transcript });
+          return;
+        }
         default:
           sendResponse({ ok: false, message: "Unknown content action." });
       }
@@ -220,6 +225,74 @@ function startReading(text) {
   utterance.pitch = 1;
   utterance.volume = 1;
   window.speechSynthesis.speak(utterance);
+}
+
+function captureVoiceCommand(lang) {
+  return new Promise((resolve, reject) => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      reject(new Error("Speech recognition is not supported on this page."));
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.lang = lang;
+
+    let done = false;
+    const timeoutId = window.setTimeout(() => {
+      if (done) {
+        return;
+      }
+      done = true;
+      try {
+        recognition.stop();
+      } catch {
+        // ignore stop errors
+      }
+      reject(new Error("Voice timeout. Please speak sooner and try again."));
+    }, 12000);
+
+    recognition.onresult = (event) => {
+      if (done) {
+        return;
+      }
+      done = true;
+      window.clearTimeout(timeoutId);
+      const transcript = event.results?.[0]?.[0]?.transcript || "";
+      resolve(transcript);
+    };
+
+    recognition.onerror = (event) => {
+      if (done) {
+        return;
+      }
+      done = true;
+      window.clearTimeout(timeoutId);
+      reject(new Error(`Speech error: ${event.error}`));
+    };
+
+    recognition.onend = () => {
+      if (done) {
+        return;
+      }
+      done = true;
+      window.clearTimeout(timeoutId);
+      reject(new Error("No voice captured. Please try again."));
+    };
+
+    try {
+      recognition.start();
+    } catch (error) {
+      done = true;
+      window.clearTimeout(timeoutId);
+      reject(error);
+    }
+  });
 }
 
 function injectStyles() {
