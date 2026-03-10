@@ -103,6 +103,14 @@ button.secondary {
   font-size: 0.78rem;
 }
 
+.manual-row {
+  margin-top: 8px;
+}
+
+.manual-row input {
+  min-width: 0;
+}
+
 h2 {
   margin: 0 0 7px;
   font-size: 0.95rem;
