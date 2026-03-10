@@ -17,6 +17,8 @@ const elements = {
   apiKey: document.getElementById("apiKey"),
   saveKeyBtn: document.getElementById("saveKeyBtn"),
   micBtn: document.getElementById("micBtn"),
+  manualCommand: document.getElementById("manualCommand"),
+  runCommandBtn: document.getElementById("runCommandBtn"),
   voiceLang: document.getElementById("voiceLang"),
   transcript: document.getElementById("transcript"),
   aiResponse: document.getElementById("aiResponse"),
@@ -43,6 +45,16 @@ async function init() {
 
   elements.saveKeyBtn.addEventListener("click", saveApiKey);
   elements.micBtn.addEventListener("click", startSpeechRecognition);
+  elements.runCommandBtn.addEventListener("click", async () => {
+    const command = elements.manualCommand.value.trim();
+    if (!command) {
+      setStatus("Type a command first.", "error");
+      return;
+    }
+
+    elements.transcript.textContent = command;
+    await handleVoiceCommand(command);
+  });
 
   elements.summarizeBtn.addEventListener("click", async () => {
     await runAction(summarize_page);
@@ -86,7 +98,7 @@ async function saveApiKey() {
   setStatus("API key saved.", "success");
 }
 
-export function startSpeechRecognition() {
+export async function startSpeechRecognition() {
   const SpeechRecognition =
     window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -107,6 +119,21 @@ export function startSpeechRecognition() {
   elements.micBtn.textContent = "Listening...";
   setStatus("Listening for your command...", "");
 
+  try {
+    // Trigger the browser microphone permission flow for reliable recognition.
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+  } catch (error) {
+    elements.micBtn.disabled = false;
+    elements.micBtn.textContent = "Start Voice";
+    setStatus(
+      "Microphone permission blocked. Allow mic access in site settings.",
+      "error",
+    );
+    elements.aiResponse.textContent = `Mic permission error: ${error.message}`;
+    return;
+  }
+
   recognition.onresult = async (event) => {
     const transcript = event.results?.[0]?.[0]?.transcript?.trim() || "";
     elements.transcript.textContent = transcript || "No speech detected.";
@@ -117,7 +144,9 @@ export function startSpeechRecognition() {
   };
 
   recognition.onerror = (event) => {
-    setStatus(`Speech error: ${event.error}`, "error");
+    const msg = `Speech error: ${event.error}. Try typing the command below.`;
+    setStatus(msg, "error");
+    elements.aiResponse.textContent = msg;
   };
 
   recognition.onend = () => {
@@ -125,7 +154,15 @@ export function startSpeechRecognition() {
     elements.micBtn.textContent = "Start Voice";
   };
 
-  recognition.start();
+  try {
+    recognition.start();
+  } catch (error) {
+    elements.micBtn.disabled = false;
+    elements.micBtn.textContent = "Start Voice";
+    setStatus(`Could not start speech recognition: ${error.message}`, "error");
+    elements.aiResponse.textContent =
+      "Voice capture could not start. Use the text command fallback to continue demo.";
+  }
 }
 
 async function handleVoiceCommand(transcript) {
