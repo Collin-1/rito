@@ -2,83 +2,71 @@
 
 import { safeJsonParse, truncateText } from "./utils.js";
 
-const GEMINI_API_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models";
-const DEFAULT_MODEL = "gemini-1.5-flash-8b";
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const DEFAULT_MODEL = "llama-3.1-8b-instant";
 
 const QUOTA_FALLBACK_NOTE =
-  "Gemini quota unavailable. Running local fallback mode with reduced AI quality.";
+  "Groq quota unavailable. Running local fallback mode with reduced AI quality.";
 
 async function getApiKey() {
-  const data = await chrome.storage.local.get(["geminiApiKey", "openaiApiKey"]);
-  const key = data.geminiApiKey || data.openaiApiKey;
+  const data = await chrome.storage.local.get([
+    "groqApiKey",
+    "geminiApiKey",
+    "openaiApiKey",
+  ]);
+  const key = data.groqApiKey || data.geminiApiKey || data.openaiApiKey;
 
   if (!key) {
-    throw new Error("Gemini API key not found. Add it in the popup first.");
+    throw new Error("Groq API key not found. Add it in the popup first.");
   }
 
   return key;
 }
 
-async function callGemini(messages, options = {}) {
+async function callGroq(messages, options = {}) {
   const key = await getApiKey();
 
-  const promptText = messages
-    .map(
-      (message) =>
-        `${String(message.role || "user").toUpperCase()}: ${message.content}`,
-    )
-    .join("\n\n");
-
   const body = {
-    contents: [
-      {
-        role: "user",
-        parts: [{ text: promptText }],
-      },
-    ],
-    generationConfig: {
-      temperature: options.temperature ?? 0.2,
-      maxOutputTokens: options.maxTokens ?? 700,
-    },
+    model: options.model || DEFAULT_MODEL,
+    messages,
+    temperature: options.temperature ?? 0.2,
+    max_tokens: options.maxTokens ?? 700,
   };
 
   if (options.responseFormat) {
-    body.generationConfig.responseMimeType = "application/json";
+    body.response_format = { type: "json_object" };
   }
 
-  const model = options.model || DEFAULT_MODEL;
-  const response = await fetch(
-    `${GEMINI_API_URL}/${model}:generateContent?key=${encodeURIComponent(key)}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+  const response = await fetch(GROQ_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
     },
-  );
+    body: JSON.stringify(body),
+  });
 
   if (!response.ok) {
     const errorText = await response.text();
     const parsed = safeJsonParse(errorText) || {};
-    const status = parsed?.error?.status || "";
+    const type = parsed?.error?.type || "";
+    const code = parsed?.error?.code || "";
 
-    if (response.status === 429 || status === "RESOURCE_EXHAUSTED") {
-      const error = new Error("Gemini quota exceeded.");
+    if (
+      response.status === 429 ||
+      type === "insufficient_quota" ||
+      code === "rate_limit_exceeded"
+    ) {
+      const error = new Error("Groq quota exceeded.");
       error.name = "QuotaExceededError";
       throw error;
     }
 
-    throw new Error(`Gemini request failed: ${response.status} ${errorText}`);
+    throw new Error(`Groq request failed: ${response.status} ${errorText}`);
   }
 
   const data = await response.json();
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  return parts
-    .map((part) => part?.text || "")
-    .join("\n")
-    .trim();
+  return data?.choices?.[0]?.message?.content || "";
 }
 
 export async function parseIntent(command) {
@@ -114,7 +102,7 @@ JSON schema:
   const userPrompt = `User command: "${command}"`;
 
   try {
-    const raw = await callGemini(
+    const raw = await callGroq(
       [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -141,7 +129,7 @@ JSON schema:
       fallback_note:
         error?.name === "QuotaExceededError"
           ? QUOTA_FALLBACK_NOTE
-          : "Gemini is unavailable. Running local fallback mode.",
+          : "Groq is unavailable. Running local fallback mode.",
     };
   }
 }
@@ -152,7 +140,7 @@ export async function summarizeText(text) {
   const prompt = `Summarize this webpage content in 5 concise bullet points for a user with low digital literacy. Keep wording simple and practical.\n\n${truncated}`;
 
   try {
-    return await callGemini(
+    return await callGroq(
       [
         {
           role: "system",
@@ -177,7 +165,7 @@ Keep all important meaning.
 ${truncated}`;
 
   try {
-    return await callGemini(
+    return await callGroq(
       [
         {
           role: "system",
@@ -201,7 +189,7 @@ Return ONLY JSON in this shape: {"sentences": ["...", "...", "...", "...", "..."
 ${truncated}`;
 
   try {
-    const raw = await callGemini(
+    const raw = await callGroq(
       [
         {
           role: "system",
@@ -331,7 +319,7 @@ function buildLocalSummary(text) {
   }
 
   return [
-    "[Local fallback summary - Gemini unavailable]",
+    "[Local fallback summary - Groq unavailable]",
     ...sentences.map((line) => `- ${line}`),
   ].join("\n");
 }
