@@ -9,11 +9,8 @@ const statusEl = document.getElementById("status");
 init();
 
 async function init() {
-  const stored = await chrome.storage.local.get([
-    "geminiApiKey",
-    "openaiApiKey",
-  ]);
-  const key = stored.geminiApiKey || stored.openaiApiKey;
+  const stored = await chrome.storage.local.get(["groqApiKey"]);
+  const key = stored.groqApiKey;
   if (key) {
     apiKeyInput.value = key;
   }
@@ -30,8 +27,12 @@ async function saveKey() {
     return;
   }
 
-  await chrome.storage.local.set({ openaiApiKey: key });
-  await chrome.storage.local.set({ geminiApiKey: key });
+  if (!key.startsWith("gsk_")) {
+    setStatus("Invalid Groq key format. It should start with gsk_.", true);
+    return;
+  }
+
+  await chrome.storage.local.set({ groqApiKey: key });
   setStatus("API key saved successfully.", false);
 }
 
