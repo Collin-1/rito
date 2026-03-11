@@ -4,10 +4,7 @@
   "version": "0.1.0",
   "description": "Control the web with your voice.",
   "permissions": ["activeTab", "tabs", "scripting", "storage"],
-  "host_permissions": [
-    "<all_urls>",
-    "https://generativelanguage.googleapis.com/*"
-  ],
+  "host_permissions": ["<all_urls>", "https://api.groq.com/*"],
   "action": {
     "default_title": "Rito",
     "default_popup": "popup.html"

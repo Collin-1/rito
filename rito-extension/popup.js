@@ -38,11 +38,8 @@ let latestSummary = "";
 init();
 
 async function init() {
-  const saved = await chrome.storage.local.get([
-    "geminiApiKey",
-    "openaiApiKey",
-  ]);
-  const key = saved.geminiApiKey || saved.openaiApiKey;
+  const saved = await chrome.storage.local.get(["groqApiKey"]);
+  const key = saved.groqApiKey;
   if (key) {
     elements.apiKey.value = key;
   }
@@ -98,7 +95,7 @@ async function init() {
 
 async function saveApiKey() {
   const key = elements.apiKey.value.trim();
-  await chrome.storage.local.set({ geminiApiKey: key });
+  await chrome.storage.local.set({ groqApiKey: key });
   setStatus("API key saved.", "success");
 }
 
