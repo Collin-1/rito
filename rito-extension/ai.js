@@ -110,7 +110,7 @@ JSON schema:
 
     const parsed = safeJsonParse(raw) || {};
 
-    return {
+    const intent = {
       detected_language: parsed.detected_language || "other",
       english_command: parsed.english_command || command,
       action: parsed.action || "unknown",
@@ -120,16 +120,18 @@ JSON schema:
       label: parsed.label || "",
       fallback_note: "",
     };
+
+    return normalizeIntent(intent);
   } catch (error) {
     const fallback = parseIntentLocally(command);
     const reason = String(error?.message || "").slice(0, 180);
-    return {
+    return normalizeIntent({
       ...fallback,
       fallback_note:
         error?.name === "QuotaExceededError"
           ? QUOTA_FALLBACK_NOTE
           : `Groq unavailable (${reason || "request failed"}). Running local fallback mode.`,
-    };
+    });
   }
 }
 
@@ -264,7 +266,7 @@ function parseIntentLocally(command) {
     }
 
     const openAndSearch = lower.match(
-      /open\s+([a-z0-9.-]+)\s+and\s+search\s+(.+)/i,
+      /(?:open|go to|navigate to)\s+([a-z0-9.-]+)\s+and\s+search(?:\s+for)?\s+(.+)/i,
     );
     if (openAndSearch) {
       return {
@@ -350,4 +352,70 @@ function pickImportantSentencesLocally(text) {
     .slice(0, 5)
     .sort((a, b) => a.index - b.index)
     .map((item) => item.value);
+}
+
+function normalizeIntent(intent) {
+  const normalized = {
+    ...intent,
+    site: String(intent.site || "")
+      .trim()
+      .toLowerCase(),
+    query: String(intent.query || "").trim(),
+    english_command: String(intent.english_command || "").trim(),
+  };
+
+  // If the model returns open_site for a command that clearly includes search intent,
+  // force search_site so users get expected behavior.
+  if (
+    normalized.action === "open_site" ||
+    (normalized.action === "search_site" && !normalized.query)
+  ) {
+    const extracted = extractSiteAndQuery(normalized.english_command);
+    if (extracted.query) {
+      normalized.action = "search_site";
+      normalized.site = extracted.site || normalized.site || "google";
+      normalized.query = extracted.query;
+    }
+  }
+
+  if (normalized.site.endsWith(".com")) {
+    normalized.site = normalized.site.replace(/\.com$/, "");
+  }
+
+  return normalized;
+}
+
+function extractSiteAndQuery(command) {
+  const text = String(command || "")
+    .trim()
+    .toLowerCase();
+
+  const direct = text.match(
+    /(?:open|go to|navigate to)\s+([a-z0-9.-]+)\s+and\s+search(?:\s+for)?\s+(.+)/i,
+  );
+  if (direct) {
+    return { site: stripDomainSuffix(direct[1]), query: direct[2].trim() };
+  }
+
+  const onSite = text.match(
+    /search(?:\s+for)?\s+(.+?)\s+(?:on|in)\s+([a-z0-9.-]+)/i,
+  );
+  if (onSite) {
+    return { site: stripDomainSuffix(onSite[2]), query: onSite[1].trim() };
+  }
+
+  const generic = text.match(/search(?:\s+for)?\s+(.+)/i);
+  if (generic) {
+    return { site: "google", query: generic[1].trim() };
+  }
+
+  return { site: "", query: "" };
+}
+
+function stripDomainSuffix(site) {
+  return String(site || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^www\./, "")
+    .replace(/\.com$/, "");
 }
