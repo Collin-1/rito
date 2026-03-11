@@ -9,15 +9,17 @@ const QUOTA_FALLBACK_NOTE =
   "Groq quota unavailable. Running local fallback mode with reduced AI quality.";
 
 async function getApiKey() {
-  const data = await chrome.storage.local.get([
-    "groqApiKey",
-    "geminiApiKey",
-    "openaiApiKey",
-  ]);
-  const key = data.groqApiKey || data.geminiApiKey || data.openaiApiKey;
+  const data = await chrome.storage.local.get(["groqApiKey"]);
+  const key = String(data.groqApiKey || "").trim();
 
   if (!key) {
-    throw new Error("Groq API key not found. Add it in the popup first.");
+    throw new Error(
+      "Groq API key not found. Save a valid gsk_ key in the popup.",
+    );
+  }
+
+  if (!key.startsWith("gsk_")) {
+    throw new Error("Invalid Groq key format. Groq keys start with gsk_.");
   }
 
   return key;
@@ -32,10 +34,6 @@ async function callGroq(messages, options = {}) {
     temperature: options.temperature ?? 0.2,
     max_tokens: options.maxTokens ?? 700,
   };
-
-  if (options.responseFormat) {
-    body.response_format = { type: "json_object" };
-  }
 
   const response = await fetch(GROQ_API_URL, {
     method: "POST",
@@ -124,12 +122,13 @@ JSON schema:
     };
   } catch (error) {
     const fallback = parseIntentLocally(command);
+    const reason = String(error?.message || "").slice(0, 180);
     return {
       ...fallback,
       fallback_note:
         error?.name === "QuotaExceededError"
           ? QUOTA_FALLBACK_NOTE
-          : "Groq is unavailable. Running local fallback mode.",
+          : `Groq unavailable (${reason || "request failed"}). Running local fallback mode.`,
     };
   }
 }
