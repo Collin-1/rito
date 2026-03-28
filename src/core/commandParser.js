@@ -130,6 +130,21 @@
         };
       }
 
+      const scrollSpokenMatch = rawText.match(
+        /^(?:scroll|go)\s+(down|up)\s+(.+?)(?:\s*(?:px|pixels))?$/i,
+      );
+      if (scrollSpokenMatch) {
+        const spokenAmount = this._extractNumberValue(scrollSpokenMatch[2]);
+        if (Number.isInteger(spokenAmount) && spokenAmount > 0) {
+          return {
+            action: "scroll",
+            direction: String(scrollSpokenMatch[1]).toLowerCase(),
+            amount: spokenAmount,
+            rawText,
+          };
+        }
+      }
+
       if (normalized === "page down") {
         return {
           action: "scroll",
@@ -180,15 +195,26 @@
         return { action: "hideNumbers", rawText };
       }
 
-      const clickNumberMatch = normalized.match(
-        /^(?:click|press|open|select)(?:\s+(?:item|number|link))?\s+(\d+)$/,
+      const clickNumberMatch = rawText.match(
+        /^(?:click|press|open|select)(?:\s+(?:item|number|link))?\s+(.+)$/i,
       );
       if (clickNumberMatch) {
-        return {
-          action: "clickNumber",
-          index: Number(clickNumberMatch[1]),
-          rawText,
-        };
+        const clickIndex = this._extractNumberValue(clickNumberMatch[1]);
+        if (Number.isInteger(clickIndex) && clickIndex >= 1) {
+          return {
+            action: "clickNumber",
+            index: clickIndex,
+            rawText,
+          };
+        }
+
+        if (Rito.fuzzy.normalizeText(clickNumberMatch[1]) === "first") {
+          return {
+            action: "clickNumber",
+            index: 1,
+            rawText,
+          };
+        }
       }
 
       if (normalized === "select first result") {
@@ -309,16 +335,19 @@
         };
       }
 
-      const goToTabIndexMatch = normalized.match(
-        /^(?:go to|switch to)\s+tab\s+(\d+)$/,
+      const goToTabIndexMatch = rawText.match(
+        /^(?:go to|switch to)\s+tab\s+(.+)$/i,
       );
       if (goToTabIndexMatch) {
-        return {
-          scope: "browser",
-          action: "GO_TO_TAB_INDEX",
-          index: Number(goToTabIndexMatch[1]),
-          rawText,
-        };
+        const tabIndex = this._extractNumberValue(goToTabIndexMatch[1]);
+        if (Number.isInteger(tabIndex) && tabIndex >= 1) {
+          return {
+            scope: "browser",
+            action: "GO_TO_TAB_INDEX",
+            index: tabIndex,
+            rawText,
+          };
+        }
       }
 
       const switchByTitleMatch = rawText.match(
@@ -558,7 +587,202 @@
         };
       }
 
+      if (tokens.has("click") || tokens.has("open") || tokens.has("press")) {
+        const spokenNumberMatch = rawText.match(
+          /^(?:click|press|open|select)(?:\s+(?:item|number|link))?\s+(.+)$/i,
+        );
+        if (spokenNumberMatch) {
+          const spokenIndex = this._extractNumberValue(spokenNumberMatch[1]);
+          if (Number.isInteger(spokenIndex) && spokenIndex >= 1) {
+            return {
+              action: "clickNumber",
+              index: spokenIndex,
+              rawText,
+            };
+          }
+        }
+      }
+
       return null;
+    }
+
+    _extractNumberValue(rawInput) {
+      const value = String(rawInput || "")
+        .trim()
+        .toLowerCase();
+      if (!value) {
+        return null;
+      }
+
+      const directNumberMatch = value.match(/\b(\d+)\b/);
+      if (directNumberMatch) {
+        return Number(directNumberMatch[1]);
+      }
+
+      const ordinalDigitMatch = value.match(/\b(\d+)(?:st|nd|rd|th)\b/);
+      if (ordinalDigitMatch) {
+        return Number(ordinalDigitMatch[1]);
+      }
+
+      const parsedWords = this._parseWordNumber(value);
+      if (Number.isInteger(parsedWords)) {
+        return parsedWords;
+      }
+
+      return null;
+    }
+
+    _parseWordNumber(rawInput) {
+      const units = {
+        zero: 0,
+        one: 1,
+        two: 2,
+        three: 3,
+        four: 4,
+        five: 5,
+        six: 6,
+        seven: 7,
+        eight: 8,
+        nine: 9,
+        ten: 10,
+        eleven: 11,
+        twelve: 12,
+        thirteen: 13,
+        fourteen: 14,
+        fifteen: 15,
+        sixteen: 16,
+        seventeen: 17,
+        eighteen: 18,
+        nineteen: 19,
+      };
+
+      const tens = {
+        twenty: 20,
+        thirty: 30,
+        forty: 40,
+        fifty: 50,
+        sixty: 60,
+        seventy: 70,
+        eighty: 80,
+        ninety: 90,
+      };
+
+      const scales = {
+        thousand: 1000,
+        million: 1000000,
+        billion: 1000000000,
+        trillion: 1000000000000,
+      };
+
+      const ordinalAliases = {
+        first: "one",
+        second: "two",
+        third: "three",
+        fourth: "four",
+        fifth: "five",
+        sixth: "six",
+        seventh: "seven",
+        eighth: "eight",
+        ninth: "nine",
+        tenth: "ten",
+        eleventh: "eleven",
+        twelfth: "twelve",
+        thirteenth: "thirteen",
+        fourteenth: "fourteen",
+        fifteenth: "fifteen",
+        sixteenth: "sixteen",
+        seventeenth: "seventeen",
+        eighteenth: "eighteen",
+        nineteenth: "nineteen",
+        twentieth: "twenty",
+        thirtieth: "thirty",
+        fortieth: "forty",
+        fiftieth: "fifty",
+        sixtieth: "sixty",
+        seventieth: "seventy",
+        eightieth: "eighty",
+        ninetieth: "ninety",
+        hundredth: "hundred",
+        thousandth: "thousand",
+        millionth: "million",
+        billionth: "billion",
+        trillionth: "trillion",
+      };
+
+      const normalized = String(rawInput || "")
+        .toLowerCase()
+        .replace(/-/g, " ")
+        .replace(/,/g, " ")
+        .replace(/\b(?:and|please|tab|tabs|number|item|link)\b/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (!normalized) {
+        return null;
+      }
+
+      const tokens = normalized
+        .split(" ")
+        .filter(Boolean)
+        .map((token) => {
+          const ordinalDigit = token.match(/^(\d+)(?:st|nd|rd|th)$/);
+          if (ordinalDigit) {
+            return ordinalDigit[1];
+          }
+          return ordinalAliases[token] || token;
+        });
+
+      let total = 0;
+      let current = 0;
+      let consumed = 0;
+
+      for (const token of tokens) {
+        if (Object.prototype.hasOwnProperty.call(units, token)) {
+          current += units[token];
+          consumed += 1;
+          continue;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(tens, token)) {
+          current += tens[token];
+          consumed += 1;
+          continue;
+        }
+
+        if (token === "hundred") {
+          current = current === 0 ? 100 : current * 100;
+          consumed += 1;
+          continue;
+        }
+
+        if (Object.prototype.hasOwnProperty.call(scales, token)) {
+          const scaleValue = scales[token];
+          const base = current === 0 ? 1 : current;
+          total += base * scaleValue;
+          current = 0;
+          consumed += 1;
+          continue;
+        }
+
+        if (/^\d+$/.test(token)) {
+          current += Number(token);
+          consumed += 1;
+          continue;
+        }
+
+        return null;
+      }
+
+      if (!consumed) {
+        return null;
+      }
+
+      const result = total + current;
+      if (!Number.isSafeInteger(result) || result < 0) {
+        return null;
+      }
+
+      return result;
     }
 
     _parseDictation(rawText, normalized) {
