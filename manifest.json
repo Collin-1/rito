@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Rito",
+  "version": "1.0.0",
+  "description": "Voice-first browser control and dictation for accessible web navigation.",
+  "permissions": ["tabs", "activeTab", "scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "src/background/serviceWorker.js"
+  },
+  "action": {
+    "default_title": "Rito",
+    "default_popup": "popup/popup.html"
+  },
+  "options_page": "options/options.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "src/shared/constants.js",
+        "src/shared/logger.js",
+        "src/shared/storage.js",
+        "src/shared/fuzzy.js",
+        "src/shared/debounce.js",
+        "src/core/speechEngine.js",
+        "src/core/commandParser.js",
+        "src/core/domNavigator.js",
+        "src/core/overlayUI.js",
+        "src/core/commandExecutor.js",
+        "src/content/contentScript.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
