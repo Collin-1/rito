@@ -113,9 +113,34 @@
     }
 
     _parseCommand(rawText, normalized) {
+      const topicLookupMatch = rawText.match(
+        /^(?:where\s+(?:can|do)\s+i\s+(?:find|locate)|where\s+is)\s+(.+)$/i,
+      );
+      if (topicLookupMatch) {
+        const topic = this._cleanTopicTarget(topicLookupMatch[1]);
+        if (topic) {
+          return {
+            action: "findTopic",
+            target: topic,
+            rawText,
+          };
+        }
+      }
+
       const browserCommand = this._parseBrowserCommand(rawText, normalized);
       if (browserCommand) {
         return browserCommand;
+      }
+
+      if (
+        /^(?:summarize|summarise)\s+(?:this\s+)?page$/i.test(rawText) ||
+        normalized === "summarize this" ||
+        normalized === "summarise this"
+      ) {
+        return {
+          action: "summarizePage",
+          rawText,
+        };
       }
 
       const scrollUnit = this._getScrollUnit();
@@ -868,6 +893,16 @@
 
     _getScrollUnit() {
       return Math.max(200, Math.round(root.innerHeight * 0.8));
+    }
+
+    _cleanTopicTarget(rawTopic) {
+      return String(rawTopic || "")
+        .trim()
+        .replace(/[?!.,:;]+$/g, "")
+        .replace(/^(?:the|a|an)\s+/i, "")
+        .replace(/\b(?:on|in)\s+(?:this|the)\s+page\b/i, "")
+        .replace(/\bpage\b$/i, "")
+        .trim();
     }
 
     _parseDictation(rawText, normalized) {

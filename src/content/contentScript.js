@@ -17,6 +17,7 @@
   let commandExecutor;
   let orbInjector;
   let unsubscribeSettings;
+  let lastWakeHintAt = 0;
 
   async function requestBackground(type, payload) {
     try {
@@ -40,6 +41,183 @@
 
   function getSettings() {
     return currentSettings;
+  }
+
+  function getPageContext(maxChars) {
+    const limit = Math.max(300, Number(maxChars || 2000));
+    const url = String(
+      root.location && root.location.href ? root.location.href : "",
+    );
+    const title = String(
+      root.document && root.document.title ? root.document.title : "",
+    );
+    const textSource =
+      (root.document && root.document.body && root.document.body.innerText) ||
+      "";
+
+    return {
+      url,
+      title,
+      visibleText: String(textSource).slice(0, limit),
+    };
+  }
+
+  function mapAiStepToCommand(step, pageContext) {
+    if (!step || typeof step !== "object") {
+      return null;
+    }
+
+    const action = String(step.action || "")
+      .trim()
+      .toUpperCase();
+
+    switch (action) {
+      case "OPEN_URL": {
+        const target = String(
+          step.url || step.target || step.value || "",
+        ).trim();
+        return {
+          scope: "browser",
+          action: "OPEN_URL",
+          target,
+          newTab: Boolean(step.newTab),
+        };
+      }
+
+      case "SEARCH": {
+        const query = String(
+          step.query || step.value || step.target || "",
+        ).trim();
+        if (!query) {
+          return null;
+        }
+        return {
+          scope: "browser",
+          action: "SEARCH",
+          query,
+        };
+      }
+
+      case "CLICK": {
+        const target = String(step.target || step.value || "").trim();
+        const numericTarget = Number(
+          step.index !== undefined ? step.index : target,
+        );
+        if (Number.isInteger(numericTarget) && numericTarget >= 1) {
+          return { action: "clickNumber", index: numericTarget };
+        }
+        if (!target) {
+          return null;
+        }
+        return { action: "click", target };
+      }
+
+      case "SCROLL": {
+        const directionSource = String(
+          step.direction || step.target || "down",
+        ).toLowerCase();
+        const direction = directionSource.includes("up") ? "up" : "down";
+        let amount = Number(step.amount);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          amount = Number(step.value);
+        }
+        if (!Number.isFinite(amount) || amount <= 0) {
+          amount = Math.max(200, Math.round(root.innerHeight * 0.8));
+        }
+
+        return {
+          action: "scroll",
+          direction,
+          amount: Math.round(amount),
+        };
+      }
+
+      case "TYPE": {
+        const text = String(step.value || step.target || "");
+        if (!text.trim()) {
+          return null;
+        }
+        return { action: "type", text };
+      }
+
+      case "SWITCH_TAB": {
+        const target = String(step.target || step.value || "").trim();
+        const numericTarget = Number(
+          step.index !== undefined ? step.index : target,
+        );
+
+        if (Number.isInteger(numericTarget) && numericTarget >= 1) {
+          return {
+            scope: "browser",
+            action: "GO_TO_TAB_INDEX",
+            index: numericTarget,
+          };
+        }
+
+        if (target) {
+          return {
+            scope: "browser",
+            action: "SWITCH_TAB_TITLE",
+            title: target,
+          };
+        }
+
+        return { scope: "browser", action: "NEXT_TAB" };
+      }
+
+      case "CLOSE_TAB":
+        return { scope: "browser", action: "CLOSE_TAB" };
+
+      case "SUMMARIZE_PAGE":
+        return {
+          action: "summarizePage",
+          context: pageContext || getPageContext(2000),
+        };
+
+      case "FIND_TOPIC": {
+        const target = String(
+          step.target || step.query || step.value || "",
+        ).trim();
+        if (!target) {
+          return null;
+        }
+        return {
+          action: "findTopic",
+          target,
+        };
+      }
+
+      default:
+        return null;
+    }
+  }
+
+  function mapAiIntentToCommand(intent, pageContext) {
+    if (!intent || typeof intent !== "object") {
+      return null;
+    }
+
+    const action = String(intent.action || "")
+      .trim()
+      .toUpperCase();
+    if (action === "MULTI_STEP") {
+      const steps = Array.isArray(intent.steps)
+        ? intent.steps
+            .map((step) => mapAiStepToCommand(step, pageContext))
+            .filter(Boolean)
+        : [];
+
+      if (!steps.length) {
+        return null;
+      }
+
+      return {
+        action: "multiStep",
+        steps,
+      };
+    }
+
+    return mapAiStepToCommand(intent, pageContext);
   }
 
   async function persistRuntimeState(patch) {
@@ -89,8 +267,30 @@
   }
 
   async function handleTranscript(text, confidence) {
-    const command = commandParser.parse(text, { mode: runtimeState.mode });
-    if (!command) {
+    let command = commandParser.parse(text, { mode: runtimeState.mode });
+
+    if (
+      currentSettings.aiIntentEnabled &&
+      (!command || command.action === "unknown")
+    ) {
+      const pageContext = getPageContext(2000);
+      const aiIntent = await requestBackground(
+        Rito.MESSAGE_TYPES.AI_PARSE_INTENT,
+        {
+          transcript: text,
+          context: pageContext,
+        },
+      );
+
+      if (aiIntent) {
+        const aiCommand = mapAiIntentToCommand(aiIntent, pageContext);
+        if (aiCommand) {
+          command = aiCommand;
+        }
+      }
+    }
+
+    if (!command || command.action === "unknown") {
       overlayUI.showFeedback("Command not recognized", "warning", 1300);
       return;
     }
@@ -132,7 +332,22 @@
 
     speechEngine.addEventListener("ignored", (event) => {
       if (event.detail.reason === "hotword_required") {
-        overlayUI.showFeedback("Say the hotword first", "warning", 1100);
+        const now = Date.now();
+        const wakeMode =
+          String(currentSettings.commandActivationMode || "always") ===
+          String(
+            (Rito.ACTIVATION_MODES && Rito.ACTIVATION_MODES.WAKE_PHRASE) ||
+              "wake_phrase",
+          );
+
+        if (wakeMode && now - lastWakeHintAt > 6000) {
+          overlayUI.showFeedback(
+            'Wake phrase mode is on. Say "hey rito" first.',
+            "info",
+            1300,
+          );
+          lastWakeHintAt = now;
+        }
       }
     });
 

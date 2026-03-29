@@ -19,7 +19,10 @@
       }
 
       const settings = this.getSettings();
-      if (this._isDuplicate(command, settings.commandCooldownMs)) {
+      if (
+        !command.metaNoDedup &&
+        this._isDuplicate(command, settings.commandCooldownMs)
+      ) {
         return { ok: false, reason: "duplicate" };
       }
 
@@ -86,6 +89,9 @@
           return { ok: true, count: candidates.length };
         }
 
+        case "multiStep":
+          return this._executeMultiStep(command.steps, context);
+
         case "hideNumbers":
           this.overlayUI.hideNumberHints();
           this.overlayUI.showFeedback("Number hints hidden", "info", 850);
@@ -106,6 +112,9 @@
         case "hoverNumber":
           return this._hoverByNumber(command.index);
 
+        case "findTopic":
+          return this._findTopic(command.target);
+
         case "selectFirstResult":
           return this._clickByTarget(command.target || "result", false, true);
 
@@ -124,6 +133,8 @@
         case "deleteLastWord":
           return this._deleteLastWord();
 
+        case "summarizePage":
+          return this._summarizePage(command.context);
         case "deleteAllWords":
           return this._deleteAllWords();
 
@@ -195,6 +206,92 @@
         });
         return { ok: false, reason: "browser_messaging_error" };
       }
+    }
+
+    async _executeMultiStep(steps, context) {
+      const sequence = Array.isArray(steps) ? steps : [];
+      if (!sequence.length) {
+        return { ok: false, reason: "empty_multi_step" };
+      }
+
+      for (const step of sequence) {
+        const result = await this.execute(
+          Object.assign({}, step, { metaNoDedup: true }),
+          context,
+        );
+        if (!result || !result.ok) {
+          return result || { ok: false, reason: "multi_step_failed" };
+        }
+      }
+
+      return { ok: true };
+    }
+
+    async _summarizePage(context) {
+      const pageContext = context || this._buildPageContext();
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: Rito.MESSAGE_TYPES.AI_SUMMARIZE_PAGE,
+          payload: { context: pageContext },
+        });
+
+        if (!response || !response.ok) {
+          this.overlayUI.showFeedback(
+            (response && response.error) || "Unable to summarize this page",
+            "warning",
+            1800,
+          );
+          return { ok: false, reason: "summary_failed" };
+        }
+
+        const summary = response.data || {};
+        const summaryText = String(summary.summary || "").trim();
+        const keyPoints = Array.isArray(summary.keyPoints)
+          ? summary.keyPoints
+              .map((point) => String(point).trim())
+              .filter(Boolean)
+          : [];
+
+        const combined = keyPoints.length
+          ? `${summaryText} Key points: ${keyPoints.slice(0, 2).join("; ")}`
+          : summaryText;
+
+        const overlayText =
+          combined.length > 250 ? `${combined.slice(0, 247)}...` : combined;
+
+        this.overlayUI.showFeedback(
+          overlayText || "Summary generated",
+          "info",
+          5200,
+        );
+
+        return { ok: true, data: summary };
+      } catch (error) {
+        this.logger.error("Summary request failed", error);
+        this.overlayUI.showFeedback(
+          "Unable to summarize this page",
+          "error",
+          1800,
+        );
+        return { ok: false, reason: "summary_error" };
+      }
+    }
+
+    _buildPageContext() {
+      return {
+        url: String(
+          root.location && root.location.href ? root.location.href : "",
+        ),
+        title: String(
+          root.document && root.document.title ? root.document.title : "",
+        ),
+        visibleText: String(
+          (root.document &&
+            root.document.body &&
+            root.document.body.innerText) ||
+            "",
+        ).slice(0, 2000),
+      };
     }
 
     _clickNumber(index) {
@@ -344,6 +441,60 @@
 
       this.overlayUI.showFeedback(`Hovered ${numericIndex}`, "info", 900);
       return { ok: true };
+    }
+
+    async _findTopic(target) {
+      const query = String(target || "").trim();
+      if (!query) {
+        this.overlayUI.showFeedback("Say what to look for", "warning", 1200);
+        return { ok: false, reason: "missing_topic_query" };
+      }
+
+      let matches = this.domNavigator.findInteractiveByText(query, {
+        maxResults: 8,
+      });
+
+      if (!matches.length) {
+        const reveal = await this.domNavigator.revealByHoverSweep({
+          query,
+          maxCandidates: 12,
+          delayMs: 50,
+        });
+
+        if (reveal.hovered > 0) {
+          matches = this.domNavigator.findInteractiveByText(query, {
+            maxResults: 8,
+          });
+        }
+      }
+
+      if (!matches.length) {
+        this.overlayUI.showFeedback(
+          `No visible matches for "${query}"`,
+          "warning",
+          1700,
+        );
+        return { ok: false, reason: "topic_not_found" };
+      }
+
+      this.overlayUI.showNumberHints(matches);
+
+      const bestMatch = matches[0];
+      if (bestMatch && bestMatch.element && bestMatch.element.scrollIntoView) {
+        bestMatch.element.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+          inline: "center",
+        });
+      }
+
+      this.overlayUI.showFeedback(
+        `Found ${matches.length} match${matches.length === 1 ? "" : "es"} for "${query}". Say "click 1" to open the top result.`,
+        "info",
+        2400,
+      );
+
+      return { ok: true, count: matches.length };
     }
 
     _activateElement(element, openInNewTab) {
