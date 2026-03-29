@@ -69,6 +69,7 @@
       const nodeList = root.document.querySelectorAll(selector);
 
       const candidates = [];
+      const seenElements = new Set();
       for (
         let i = 0;
         i < nodeList.length && candidates.length < opts.maxElements;
@@ -98,6 +99,51 @@
           inViewport,
           index: candidates.length + 1,
         });
+        seenElements.add(element);
+      }
+
+      // Include hover-first navigation triggers so numbering works on menus
+      // that only become interactive after mouse hover.
+      if (candidates.length < opts.maxElements) {
+        const hoverCandidates = this.findHoverableByText("", {
+          maxResults: Math.min(opts.maxElements, 180),
+        });
+
+        for (const hoverCandidate of hoverCandidates) {
+          if (candidates.length >= opts.maxElements) {
+            break;
+          }
+
+          if (!hoverCandidate || !hoverCandidate.element) {
+            continue;
+          }
+
+          if (seenElements.has(hoverCandidate.element)) {
+            continue;
+          }
+
+          const rect = hoverCandidate.element.getBoundingClientRect();
+          const inViewport =
+            rect.bottom > 0 &&
+            rect.right > 0 &&
+            rect.top < root.innerHeight &&
+            rect.left < root.innerWidth;
+
+          if (opts.onlyViewport && !inViewport) {
+            continue;
+          }
+
+          candidates.push({
+            element: hoverCandidate.element,
+            text:
+              hoverCandidate.text ||
+              this._extractElementText(hoverCandidate.element),
+            rect,
+            inViewport,
+            index: candidates.length + 1,
+          });
+          seenElements.add(hoverCandidate.element);
+        }
       }
 
       this.latestCandidates = candidates;
@@ -144,6 +190,189 @@
         .slice(0, opts.maxResults);
 
       return ranked;
+    }
+
+    findHoverableByText(query, options) {
+      const opts = Object.assign({ maxResults: 8 }, options || {});
+      const cleanedQuery = String(query || "").trim();
+      const hoverSelector = [
+        "[aria-haspopup='true']",
+        "summary",
+        "nav a",
+        "nav button",
+        "[role='button']",
+        "[role='menuitem']",
+        "button",
+        "a[href]",
+      ].join(",");
+
+      const nodes = Array.from(root.document.querySelectorAll(hoverSelector));
+
+      // Some navigation menus use plain div/span elements that only react on hover.
+      const navContainers = Array.from(
+        root.document.querySelectorAll("nav, [role='navigation'], header"),
+      );
+      const navHoverExtras = [];
+
+      for (const container of navContainers) {
+        const descendants = Array.from(
+          container.querySelectorAll("div, span, li, p"),
+        ).slice(0, 260);
+
+        for (const element of descendants) {
+          if (!DOMNavigator.isElementVisible(element)) {
+            continue;
+          }
+
+          const text = this._extractElementText(element);
+          if (!text || text.length > 64) {
+            continue;
+          }
+
+          const style = root.getComputedStyle(element);
+          const className = String(element.className || "").toLowerCase();
+          const hasPointerCursor = style.cursor === "pointer";
+          const hasHoverSemantic =
+            /menu|dropdown|submenu|trigger|hover|nav/.test(className) ||
+            element.hasAttribute("aria-haspopup") ||
+            element.hasAttribute("aria-expanded") ||
+            element.hasAttribute("onmouseenter") ||
+            element.hasAttribute("onmouseover") ||
+            typeof element.onmouseenter === "function";
+
+          if (hasPointerCursor || hasHoverSemantic) {
+            navHoverExtras.push(element);
+          }
+        }
+      }
+
+      const merged = nodes.concat(navHoverExtras);
+      const uniqueNodes = [];
+      const seen = new Set();
+      for (const element of merged) {
+        if (!element || seen.has(element)) {
+          continue;
+        }
+        seen.add(element);
+        uniqueNodes.push(element);
+      }
+
+      const candidates = uniqueNodes
+        .filter((element) => DOMNavigator.isElementVisible(element))
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          const inViewport =
+            rect.bottom > 0 &&
+            rect.right > 0 &&
+            rect.top < root.innerHeight &&
+            rect.left < root.innerWidth;
+          return {
+            element,
+            text: this._extractElementText(element),
+            rect,
+            inViewport,
+          };
+        });
+
+      if (!cleanedQuery) {
+        return candidates
+          .sort((left, right) => left.rect.top - right.rect.top)
+          .slice(0, opts.maxResults);
+      }
+
+      return candidates
+        .map((candidate) => {
+          const score = Rito.fuzzy.scoreCandidate(cleanedQuery, candidate.text);
+          const hasPopupHint =
+            candidate.element.hasAttribute("aria-haspopup") ||
+            String(candidate.element.className || "")
+              .toLowerCase()
+              .includes("menu");
+          return {
+            ...candidate,
+            score: score + (hasPopupHint ? 0.08 : 0),
+          };
+        })
+        .filter((candidate) => candidate.score > 0.16)
+        .sort((left, right) => right.score - left.score)
+        .slice(0, opts.maxResults);
+    }
+
+    triggerHover(element) {
+      if (!element || !element.isConnected) {
+        return false;
+      }
+
+      const rect = element.getBoundingClientRect();
+      const clientX = Math.round(rect.left + Math.min(rect.width / 2, 16));
+      const clientY = Math.round(rect.top + Math.min(rect.height / 2, 16));
+
+      const pointerCtor =
+        typeof PointerEvent === "function" ? PointerEvent : null;
+      const pointerEventInit = {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        clientX,
+        clientY,
+        pointerType: "mouse",
+      };
+      const mouseEventInit = {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        clientX,
+        clientY,
+      };
+
+      try {
+        if (pointerCtor) {
+          element.dispatchEvent(
+            new pointerCtor("pointerover", pointerEventInit),
+          );
+          element.dispatchEvent(
+            new pointerCtor("pointerenter", pointerEventInit),
+          );
+          element.dispatchEvent(
+            new pointerCtor("pointermove", pointerEventInit),
+          );
+        }
+
+        element.dispatchEvent(new MouseEvent("mouseover", mouseEventInit));
+        element.dispatchEvent(new MouseEvent("mouseenter", mouseEventInit));
+        element.dispatchEvent(new MouseEvent("mousemove", mouseEventInit));
+        element.focus({ preventScroll: true });
+        return true;
+      } catch (_error) {
+        return false;
+      }
+    }
+
+    async revealByHoverSweep(options) {
+      const opts = Object.assign(
+        { query: "", maxCandidates: 14, delayMs: 55 },
+        options || {},
+      );
+
+      const candidates = this.findHoverableByText(opts.query, {
+        maxResults: opts.maxCandidates,
+      });
+
+      let hovered = 0;
+      for (const candidate of candidates) {
+        if (!candidate || !candidate.element) {
+          continue;
+        }
+
+        if (this.triggerHover(candidate.element)) {
+          hovered += 1;
+          await new Promise((resolve) => {
+            root.setTimeout(resolve, opts.delayMs);
+          });
+        }
+      }
+
+      return { hovered, candidates: candidates.length };
     }
 
     focusBestEditable(hint) {

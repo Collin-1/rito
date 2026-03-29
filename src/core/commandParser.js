@@ -20,12 +20,15 @@
         return null;
       }
 
+      const disableCustom = Boolean(context && context.disableCustom);
       const mode = (context && context.mode) || Rito.COMMAND_MODES.COMMANDS;
       const normalized = Rito.fuzzy.normalizeText(rawText);
 
-      const custom = this._parseCustom(rawText, normalized);
-      if (custom) {
-        return custom;
+      if (!disableCustom) {
+        const custom = this._parseCustom(rawText, normalized, mode);
+        if (custom) {
+          return custom;
+        }
       }
 
       const modeSwitch = this._parseModeSwitch(rawText, normalized);
@@ -40,14 +43,16 @@
       return this._parseCommand(rawText, normalized);
     }
 
-    _parseCustom(rawText, normalized) {
-      const match = this.customCommands.find((entry) => {
+    _parseCustom(rawText, normalized, mode) {
+      const exactMatch = this.customCommands.find((entry) => {
         const phrase = Rito.fuzzy.normalizeText(entry && entry.phrase);
         if (!phrase) {
           return false;
         }
         return normalized === phrase;
       });
+
+      const match = exactMatch || this._findBestFuzzyCustomMatch(normalized);
 
       if (!match || !match.command) {
         return null;
@@ -62,7 +67,71 @@
         from: rawText,
         to: rewritten,
       });
-      return this.parse(rewritten, { mode: Rito.COMMAND_MODES.COMMANDS });
+
+      const rewrittenParsed = this.parse(rewritten, {
+        mode: Rito.COMMAND_MODES.COMMANDS,
+        disableCustom: true,
+      });
+
+      if (rewrittenParsed && rewrittenParsed.action !== "unknown") {
+        return rewrittenParsed;
+      }
+
+      if (mode === Rito.COMMAND_MODES.DICTATION) {
+        return {
+          action: "dictate",
+          text: rewritten,
+          appendSpace: true,
+          rawText,
+        };
+      }
+
+      return {
+        action: "unknown",
+        rawText,
+      };
+    }
+
+    _findBestFuzzyCustomMatch(normalizedInput) {
+      const input = String(normalizedInput || "").trim();
+      if (input.length < 4) {
+        return null;
+      }
+
+      let bestEntry = null;
+      let bestScore = 0;
+      let secondBestScore = 0;
+
+      this.customCommands.forEach((entry) => {
+        const phrase = Rito.fuzzy.normalizeText(entry && entry.phrase);
+        if (!phrase || phrase.length < 4) {
+          return;
+        }
+
+        const score = Rito.fuzzy.scoreCandidate(input, phrase);
+        if (score > bestScore) {
+          secondBestScore = bestScore;
+          bestScore = score;
+          bestEntry = entry;
+          return;
+        }
+
+        if (score > secondBestScore) {
+          secondBestScore = score;
+        }
+      });
+
+      const threshold = 0.9;
+      const minSeparation = 0.06;
+      if (
+        bestEntry &&
+        bestScore >= threshold &&
+        bestScore - secondBestScore >= minSeparation
+      ) {
+        return bestEntry;
+      }
+
+      return null;
     }
 
     _parseModeSwitch(rawText, normalized) {
@@ -113,13 +182,40 @@
     }
 
     _parseCommand(rawText, normalized) {
+      const topicLookupMatch = rawText.match(
+        /^(?:where\s+(?:can|do)\s+i\s+(?:find|locate)|where\s+is)\s+(.+)$/i,
+      );
+      if (topicLookupMatch) {
+        const topic = this._cleanTopicTarget(topicLookupMatch[1]);
+        if (topic) {
+          return {
+            action: "findTopic",
+            target: topic,
+            rawText,
+          };
+        }
+      }
+
       const browserCommand = this._parseBrowserCommand(rawText, normalized);
       if (browserCommand) {
         return browserCommand;
       }
 
+      if (
+        /^(?:summarize|summarise)\s+(?:this\s+)?page$/i.test(rawText) ||
+        normalized === "summarize this" ||
+        normalized === "summarise this"
+      ) {
+        return {
+          action: "summarizePage",
+          rawText,
+        };
+      }
+
+      const scrollUnit = this._getScrollUnit();
+
       const scrollMatch = normalized.match(
-        /^(?:scroll|go)\s+(down|up)(?:\s+(\d+))?(?:\s*(?:px|pixels))?$/,
+        /^scroll\s+(down|up)(?:\s+(\d+))?(?:\s*(?:px|pixels))?$/,
       );
       if (scrollMatch) {
         return {
@@ -131,15 +227,71 @@
       }
 
       const scrollSpokenMatch = rawText.match(
-        /^(?:scroll|go)\s+(down|up)\s+(.+?)(?:\s*(?:px|pixels))?$/i,
+        /^scroll\s+(down|up)\s+(.+?)(?:\s*(?:px|pixels))?$/i,
       );
       if (scrollSpokenMatch) {
-        const spokenAmount = this._extractNumberValue(scrollSpokenMatch[2]);
+        const spokenAmountInput = String(scrollSpokenMatch[2] || "").trim();
+        const spokenAmount = this._extractNumberValue(spokenAmountInput);
         if (Number.isInteger(spokenAmount) && spokenAmount > 0) {
+          const usesScaler = /(?:^|\s)(?:x|times?|page|pages)(?:\s|$)/i.test(
+            spokenAmountInput,
+          );
+
           return {
             action: "scroll",
             direction: String(scrollSpokenMatch[1]).toLowerCase(),
-            amount: spokenAmount,
+            amount: usesScaler ? spokenAmount * scrollUnit : spokenAmount,
+            rawText,
+          };
+        }
+      }
+
+      const scrollScaleWithDirectionMatch = rawText.match(
+        /^scroll\s+(down|up)\s+(.+?)\s*(?:x|times?)$/i,
+      );
+      if (scrollScaleWithDirectionMatch) {
+        const scale = this._extractNumberValue(
+          scrollScaleWithDirectionMatch[2],
+        );
+        if (Number.isInteger(scale) && scale > 0) {
+          return {
+            action: "scroll",
+            direction: String(scrollScaleWithDirectionMatch[1]).toLowerCase(),
+            amount: scale * scrollUnit,
+            rawText,
+          };
+        }
+      }
+
+      const scrollScaleNoDirectionMatch = rawText.match(/^scroll\s+(.+)$/i);
+      if (scrollScaleNoDirectionMatch) {
+        const candidate = scrollScaleNoDirectionMatch[1].trim();
+        if (!/^(?:up|down)\b/i.test(candidate)) {
+          const scale = this._extractNumberValue(candidate);
+          if (Number.isInteger(scale) && scale > 0) {
+            return {
+              action: "scroll",
+              direction: "down",
+              amount: scale * scrollUnit,
+              rawText,
+            };
+          }
+        }
+      }
+
+      const pageCommandMatch = rawText.match(/^page\s*(down|up)(?:\s+(.+))?$/i);
+      if (pageCommandMatch) {
+        const direction = String(pageCommandMatch[1]).toLowerCase();
+        const scaleInput = pageCommandMatch[2]
+          ? pageCommandMatch[2].trim()
+          : "";
+        const scale = scaleInput ? this._extractNumberValue(scaleInput) : 1;
+
+        if (!scaleInput || (Number.isInteger(scale) && scale > 0)) {
+          return {
+            action: "scroll",
+            direction,
+            amount: (scale || 1) * scrollUnit,
             rawText,
           };
         }
@@ -149,7 +301,7 @@
         return {
           action: "scroll",
           direction: "down",
-          amount: Math.round(root.innerHeight * 0.8),
+          amount: scrollUnit,
           rawText,
         };
       }
@@ -158,7 +310,7 @@
         return {
           action: "scroll",
           direction: "up",
-          amount: Math.round(root.innerHeight * 0.8),
+          amount: scrollUnit,
           rawText,
         };
       }
@@ -240,6 +392,26 @@
         return {
           action: "openInNewTab",
           target: "",
+          rawText,
+        };
+      }
+
+      const hoverTargetMatch = rawText.match(
+        /^(?:hover|mouse over|move mouse to)\s+(.+)$/i,
+      );
+      if (hoverTargetMatch) {
+        const hoverIndex = this._extractNumberValue(hoverTargetMatch[1]);
+        if (Number.isInteger(hoverIndex) && hoverIndex >= 1) {
+          return {
+            action: "hoverNumber",
+            index: hoverIndex,
+            rawText,
+          };
+        }
+
+        return {
+          action: "hover",
+          target: hoverTargetMatch[1].trim(),
           rawText,
         };
       }
@@ -535,7 +707,7 @@
     _inferFallbackIntent(rawText, normalized) {
       const tokens = new Set(normalized.split(" ").filter(Boolean));
 
-      if (tokens.has("scroll") || tokens.has("down") || tokens.has("up")) {
+      if (tokens.has("scroll") && (tokens.has("down") || tokens.has("up"))) {
         if (tokens.has("up")) {
           return {
             action: "scroll",
@@ -713,7 +885,10 @@
         .toLowerCase()
         .replace(/-/g, " ")
         .replace(/,/g, " ")
-        .replace(/\b(?:and|please|tab|tabs|number|item|link)\b/g, " ")
+        .replace(
+          /\b(?:and|please|tab|tabs|number|item|link|time|times|x|page|pages)\b/g,
+          " ",
+        )
         .replace(/\s+/g, " ")
         .trim();
 
@@ -785,12 +960,47 @@
       return result;
     }
 
+    _getScrollUnit() {
+      return Math.max(200, Math.round(root.innerHeight * 0.8));
+    }
+
+    _cleanTopicTarget(rawTopic) {
+      return String(rawTopic || "")
+        .trim()
+        .replace(/[?!.,:;]+$/g, "")
+        .replace(/^(?:the|a|an)\s+/i, "")
+        .replace(/\b(?:on|in)\s+(?:this|the)\s+page\b/i, "")
+        .replace(/\bpage\b$/i, "")
+        .trim();
+    }
+
     _parseDictation(rawText, normalized) {
       if (normalized === "delete last word" || normalized === "undo word") {
         return {
           action: "deleteLastWord",
           rawText,
         };
+      }
+
+      if (normalized === "delete all words" || normalized === "clear all") {
+        return {
+          action: "deleteAllWords",
+          rawText,
+        };
+      }
+
+      const deleteMultipleMatch = rawText.match(
+        /^delete\s+last\s+(.+?)\s+words?$/i,
+      );
+      if (deleteMultipleMatch) {
+        const count = this._extractNumberValue(deleteMultipleMatch[1]);
+        if (Number.isInteger(count) && count > 0) {
+          return {
+            action: "deleteMultipleWords",
+            count,
+            rawText,
+          };
+        }
       }
 
       if (

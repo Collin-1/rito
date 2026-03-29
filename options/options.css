@@ -107,6 +107,17 @@ output {
   font-size: 0.9rem;
 }
 
+.inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.inline-actions .help {
+  flex: 1 1 240px;
+}
+
 .command-list {
   display: grid;
   gap: 8px;
