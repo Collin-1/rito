@@ -48,20 +48,20 @@
         <input id="hotword" name="hotword" type="text" maxlength="40" placeholder="Example: Hey Rito" /> -->
       </section>
 
-          <label for="commandActivationMode">Command activation mode</label>
-          <select id="commandActivationMode" name="commandActivationMode">
-            <option value="always">Always run spoken commands</option>
-            <option value="wake_phrase">
-              Wake phrase only (say "hey rito" or "hello rito" first)
-            </option>
-          </select>
+      <label for="commandActivationMode">Command activation mode</label>
+      <select id="commandActivationMode" name="commandActivationMode">
+        <option value="always">Always run spoken commands</option>
+        <option value="wake_phrase">
+          Wake phrase only (say "hey rito" or "hello rito" first)
+        </option>
+      </select>
 
-          <p class="help">
-            In wake phrase mode, Rito keeps listening but only executes commands
-            after hearing a wake phrase such as "hey rito" or "hello rito".
-          </p>
+      <p class="help">
+        In wake phrase mode, Rito keeps listening but only executes commands
+        after hearing a wake phrase such as "hey rito" or "hello rito".
+      </p>
 
-          <!-- <label for="hotword">Custom wake phrase (optional)</label>
+      <!-- <label for="hotword">Custom wake phrase (optional)</label>
           <input
             id="hotword"
             name="hotword"
@@ -69,8 +69,8 @@
             maxlength="40"
             placeholder="Example: Hey Rito"
           /> -->
-        </section>
-  
+      </section>
+
       <section class="card">
         <h2>Accessibility and reliability</h2>
 
@@ -99,69 +99,63 @@
           Add shortcut
         </button>
       </section>
-<section class="card">
-  <h2>AI intent and summarization</h2>
-  <p class="help">
-    AI parsing runs through the background worker so your API key stays
-    out of page context.
-  </p>
+      <section class="card">
+        <h2>AI intent and summarization</h2>
+        <p class="help">
+          AI parsing runs through the background worker so your API key stays
+          out of page context.
+        </p>
 
-  <label class="switch-row">
-    <input id="aiIntentEnabled" name="aiIntentEnabled" type="checkbox" />
-    <span>Enable AI intent recognition (Groq)</span>
-  </label>
+        <label class="switch-row">
+          <input id="aiIntentEnabled" name="aiIntentEnabled" type="checkbox" />
+          <span>Enable AI intent recognition (Groq)</span>
+        </label>
 
-  <label for="aiModel">Groq model</label>
-  <input id="aiModel" name="aiModel" type="text" placeholder="llama-3.3-70b-versatile" />
+        <label for="aiModel">Groq model</label>
+        <input id="aiModel" name="aiModel" type="text" placeholder="llama-3.3-70b-versatile" />
 
-  <label for="aiApiKey">Groq API key</label>
-  <input
-    id="aiApiKey"
-    name="aiApiKey"
-    type="password"
-    autocomplete="off"
-    spellcheck="false"
-    placeholder="gsk_..."
-  />
+        <label for="aiApiKey">Groq API key</label>
+        <input id="aiApiKey" name="aiApiKey" type="password" autocomplete="off" spellcheck="false"
+          placeholder="gsk_..." />
 
-  <div class="inline-actions">
-    <button id="clearApiKeyBtn" type="button" class="ghost-btn">
-      Clear saved key
-    </button>
-    <span id="apiKeyState" class="help"></span>
-  </div>
+        <div class="inline-actions">
+          <button id="clearApiKeyBtn" type="button" class="ghost-btn">
+            Clear saved key
+          </button>
+          <span id="apiKeyState" class="help"></span>
+        </div>
 
-  <label for="aiTimeoutMs">AI request timeout (ms)</label>
-  <input id="aiTimeoutMs" name="aiTimeoutMs" type="number" min="3000" max="60000" step="500" />
+        <label for="aiTimeoutMs">AI request timeout (ms)</label>
+        <input id="aiTimeoutMs" name="aiTimeoutMs" type="number" min="3000" max="60000" step="500" />
 
-  <label for="aiRequestDebounceMs">AI request debounce (ms)</label>
-  <input id="aiRequestDebounceMs" name="aiRequestDebounceMs" type="number" min="100" max="2500" step="50" />
+        <label for="aiRequestDebounceMs">AI request debounce (ms)</label>
+        <input id="aiRequestDebounceMs" name="aiRequestDebounceMs" type="number" min="100" max="2500" step="50" />
 
-  <label for="aiCacheTtlMs">AI cache duration (ms)</label>
-  <input id="aiCacheTtlMs" name="aiCacheTtlMs" type="number" min="1000" max="300000" step="500" />
-</section>
+        <label for="aiCacheTtlMs">AI cache duration (ms)</label>
+        <input id="aiCacheTtlMs" name="aiCacheTtlMs" type="number" min="1000" max="300000" step="500" />
+      </section>
 
-<section class="card">
-  <h2>Custom command shortcuts</h2>
-  <p class="help">
-    Define phrase aliases mapped to existing commands. Example: phrase
-    "send now" -> command "click submit"
-  </p>
-  <div id="customCommandsList" class="command-list"></div>
-  <button id="addShortcutBtn" type="button" class="ghost-btn">
-    Add shortcut
-  </button>
-</section>
+      <section class="card">
+        <h2>Custom command shortcuts</h2>
+        <p class="help">
+          Define phrase aliases mapped to existing commands. Example: phrase
+          "send now" -> command "click submit"
+        </p>
+        <div id="customCommandsList" class="command-list"></div>
+        <button id="addShortcutBtn" type="button" class="ghost-btn">
+          Add shortcut
+        </button>
+      </section>
 
-<section class="actions">
-  <button type="submit" class="primary-btn">Save settings</button>
-  <button id="resetBtn" type="button" class="ghost-btn">
-    Reset defaults
-  </button>
-  <span id="saveStatus" role="status" aria-live="polite"></span>
-</section>
-</form>
-</main>
+      <section class="actions">
+        <button type="submit" class="primary-btn">Save settings</button>
+        <button id="resetBtn" type="button" class="ghost-btn">
+          Reset defaults
+        </button>
+        <span id="saveStatus" role="status" aria-live="polite"></span>
+      </section>
+    </form>
+  </main>
 
   <script src="../src/shared/constants.js"></script>
   <script src="options.js"></script>
