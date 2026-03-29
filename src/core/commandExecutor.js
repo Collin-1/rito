@@ -177,10 +177,7 @@
       }
 
       try {
-        const response = await chrome.runtime.sendMessage({
-          type: Rito.MESSAGE_TYPES.BROWSER_COMMAND,
-          payload: Object.assign({}, command),
-        });
+        const response = await this._sendBrowserCommandMessage(command);
 
         if (!response || !response.ok) {
           const reason =
@@ -195,17 +192,144 @@
 
         return { ok: true, data: response.data || null };
       } catch (error) {
-        this.overlayUI.showFeedback(
-          "Unable to reach background service",
-          "error",
-          1600,
+        const failure = this._normalizeMessagingFailure(error);
+        const errorMessage = failure.message || "Unknown messaging error";
+
+        // Some browser actions can interrupt the sender frame before
+        // the response returns even though the action was applied.
+        if (this._isResponseInterruptionForAction(action, errorMessage)) {
+          this.overlayUI.showFeedback("Command sent", "info", 900);
+          this.logger.warn("Browser command response interrupted", {
+            command,
+            message: errorMessage,
+          });
+          return {
+            ok: true,
+            reason: "browser_response_interrupted",
+          };
+        }
+
+        if (this._isExtensionContextInvalidatedError(errorMessage)) {
+          this.overlayUI.showFeedback(
+            "Extension was reloaded. Refresh this tab and try again.",
+            "warning",
+            2200,
+          );
+        } else {
+          this.overlayUI.showFeedback(
+            "Unable to reach background service",
+            "error",
+            1600,
+          );
+        }
+
+        this.logger.error(
+          `Browser command messaging failed (${action}): ${errorMessage}`,
         );
-        this.logger.error("Browser command messaging failed", {
+        this.logger.debug("Browser command messaging details", {
           command,
           error,
         });
         return { ok: false, reason: "browser_messaging_error" };
       }
+    }
+
+    async _sendBrowserCommandMessage(command) {
+      const maxAttempts = 2;
+      let lastFailure = null;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          return await chrome.runtime.sendMessage({
+            type: Rito.MESSAGE_TYPES.BROWSER_COMMAND,
+            payload: Object.assign({}, command),
+          });
+        } catch (error) {
+          const failure = this._normalizeMessagingFailure(error);
+          lastFailure = failure;
+          if (
+            attempt < maxAttempts &&
+            this._isRetryableMessagingError(failure.message)
+          ) {
+            await this._wait(120 * attempt);
+            continue;
+          }
+          throw failure;
+        }
+      }
+
+      throw lastFailure || new Error("Unknown browser messaging failure");
+    }
+
+    _wait(ms) {
+      return new Promise((resolve) => {
+        root.setTimeout(resolve, Math.max(0, Number(ms || 0)));
+      });
+    }
+
+    _normalizeMessagingFailure(error) {
+      if (!error) {
+        return {
+          message: "Unknown browser messaging failure",
+          detail: null,
+        };
+      }
+
+      if (typeof error === "string") {
+        return {
+          message: error,
+          detail: error,
+        };
+      }
+
+      const message = String(
+        (error && error.message) ||
+          (error && error.toString && error.toString()) ||
+          "Unknown browser messaging failure",
+      );
+
+      return {
+        message,
+        detail: error,
+      };
+    }
+
+    _isRetryableMessagingError(message) {
+      const value = String(message || "").toLowerCase();
+      return (
+        value.includes("receiving end does not exist") ||
+        value.includes("could not establish connection") ||
+        value.includes("message port closed before a response was received")
+      );
+    }
+
+    _isExtensionContextInvalidatedError(message) {
+      const value = String(message || "").toLowerCase();
+      return value.includes("extension context invalidated");
+    }
+
+    _isResponseInterruptionForAction(action, message) {
+      const interruption = String(message || "")
+        .toLowerCase()
+        .includes("message port closed before a response was received");
+      if (!interruption) {
+        return false;
+      }
+
+      const senderDisruptiveActions = new Set([
+        "NEXT_TAB",
+        "PREVIOUS_TAB",
+        "GO_TO_TAB_INDEX",
+        "SWITCH_TAB_TITLE",
+        "GO_BACK",
+        "GO_FORWARD",
+        "REFRESH_TAB",
+        "OPEN_URL",
+        "CLOSE_TAB",
+        "MOVE_TAB_TO_NEW_WINDOW",
+      ]);
+
+      return senderDisruptiveActions.has(String(action || ""));
     }
 
     async _executeMultiStep(steps, context) {

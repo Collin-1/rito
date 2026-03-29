@@ -20,12 +20,15 @@
         return null;
       }
 
+      const disableCustom = Boolean(context && context.disableCustom);
       const mode = (context && context.mode) || Rito.COMMAND_MODES.COMMANDS;
       const normalized = Rito.fuzzy.normalizeText(rawText);
 
-      const custom = this._parseCustom(rawText, normalized);
-      if (custom) {
-        return custom;
+      if (!disableCustom) {
+        const custom = this._parseCustom(rawText, normalized, mode);
+        if (custom) {
+          return custom;
+        }
       }
 
       const modeSwitch = this._parseModeSwitch(rawText, normalized);
@@ -40,14 +43,16 @@
       return this._parseCommand(rawText, normalized);
     }
 
-    _parseCustom(rawText, normalized) {
-      const match = this.customCommands.find((entry) => {
+    _parseCustom(rawText, normalized, mode) {
+      const exactMatch = this.customCommands.find((entry) => {
         const phrase = Rito.fuzzy.normalizeText(entry && entry.phrase);
         if (!phrase) {
           return false;
         }
         return normalized === phrase;
       });
+
+      const match = exactMatch || this._findBestFuzzyCustomMatch(normalized);
 
       if (!match || !match.command) {
         return null;
@@ -62,7 +67,71 @@
         from: rawText,
         to: rewritten,
       });
-      return this.parse(rewritten, { mode: Rito.COMMAND_MODES.COMMANDS });
+
+      const rewrittenParsed = this.parse(rewritten, {
+        mode: Rito.COMMAND_MODES.COMMANDS,
+        disableCustom: true,
+      });
+
+      if (rewrittenParsed && rewrittenParsed.action !== "unknown") {
+        return rewrittenParsed;
+      }
+
+      if (mode === Rito.COMMAND_MODES.DICTATION) {
+        return {
+          action: "dictate",
+          text: rewritten,
+          appendSpace: true,
+          rawText,
+        };
+      }
+
+      return {
+        action: "unknown",
+        rawText,
+      };
+    }
+
+    _findBestFuzzyCustomMatch(normalizedInput) {
+      const input = String(normalizedInput || "").trim();
+      if (input.length < 4) {
+        return null;
+      }
+
+      let bestEntry = null;
+      let bestScore = 0;
+      let secondBestScore = 0;
+
+      this.customCommands.forEach((entry) => {
+        const phrase = Rito.fuzzy.normalizeText(entry && entry.phrase);
+        if (!phrase || phrase.length < 4) {
+          return;
+        }
+
+        const score = Rito.fuzzy.scoreCandidate(input, phrase);
+        if (score > bestScore) {
+          secondBestScore = bestScore;
+          bestScore = score;
+          bestEntry = entry;
+          return;
+        }
+
+        if (score > secondBestScore) {
+          secondBestScore = score;
+        }
+      });
+
+      const threshold = 0.9;
+      const minSeparation = 0.06;
+      if (
+        bestEntry &&
+        bestScore >= threshold &&
+        bestScore - secondBestScore >= minSeparation
+      ) {
+        return bestEntry;
+      }
+
+      return null;
     }
 
     _parseModeSwitch(rawText, normalized) {
