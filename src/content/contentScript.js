@@ -310,6 +310,32 @@
     logger.error("Rito failed to initialize in content script", error);
   });
 
+  // Track if listening was active before tab became hidden
+  let wasListeningBeforeHidden = false;
+
+  // Use visibilitychange event for reliable tab focus detection
+  root.document.addEventListener("visibilitychange", () => {
+    if (root.document.hidden) {
+      // Tab is now hidden - pause microphone
+      if (runtimeState.listening && speechEngine) {
+        logger.debug("Tab hidden, stopping microphone completely");
+        wasListeningBeforeHidden = true;
+        speechEngine.stop();
+        runtimeState.listening = false;
+      } else {
+        wasListeningBeforeHidden = false;
+      }
+    } else {
+      // Tab is now visible - resume microphone if it was active
+      if (wasListeningBeforeHidden && speechEngine && !runtimeState.listening) {
+        logger.debug("Tab visible again, resuming microphone");
+        setListening(true).catch((error) => {
+          logger.error("Failed to resume listening when tab became visible", error);
+        });
+      }
+    }
+  });
+
   root.addEventListener("beforeunload", () => {
     if (speechEngine) {
       speechEngine.stop();

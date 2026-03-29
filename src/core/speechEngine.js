@@ -88,6 +88,26 @@
       }
     }
 
+    pause() {
+      // Temporary pause without stopping resources (for background tabs)
+      if (this.recognition && this.isListening) {
+        try {
+          this.recognition.stop();
+          this.logger.debug("Speech recognition paused");
+        } catch (error) {
+          this.logger.debug("Error pausing recognition", error);
+        }
+      }
+    }
+
+    resume() {
+      // Resume after pause if shouldRun is still true
+      if (this.shouldRun && !this.isListening) {
+        this._beginRecognition();
+        this.logger.debug("Speech recognition resumed");
+      }
+    }
+
     _getRecognitionCtor() {
       return root.SpeechRecognition || root.webkitSpeechRecognition || null;
     }
