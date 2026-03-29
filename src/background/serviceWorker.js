@@ -226,10 +226,10 @@ async function getReferenceTab(sender) {
 async function getTabsInRelevantWindow(sender) {
   const reference = await getReferenceTab(sender);
   if (reference && Number.isInteger(reference.windowId)) {
-    return chrome.tabs.query({ windowId: reference.windowId });
+    return await chrome.tabs.query({ windowId: reference.windowId });
   }
 
-  return chrome.tabs.query({ currentWindow: true });
+  return await chrome.tabs.query({ currentWindow: true });
 }
 
 function normalizeTarget(rawValue) {
