@@ -913,6 +913,27 @@
         };
       }
 
+      if (normalized === "delete all words" || normalized === "clear all") {
+        return {
+          action: "deleteAllWords",
+          rawText,
+        };
+      }
+
+      const deleteMultipleMatch = rawText.match(
+        /^delete\s+last\s+(.+?)\s+words?$/i,
+      );
+      if (deleteMultipleMatch) {
+        const count = this._extractNumberValue(deleteMultipleMatch[1]);
+        if (Number.isInteger(count) && count > 0) {
+          return {
+            action: "deleteMultipleWords",
+            count,
+            rawText,
+          };
+        }
+      }
+
       if (
         normalized === "new line" ||
         normalized === "next line" ||

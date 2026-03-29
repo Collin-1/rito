@@ -135,6 +135,11 @@
 
         case "summarizePage":
           return this._summarizePage(command.context);
+        case "deleteAllWords":
+          return this._deleteAllWords();
+
+        case "deleteMultipleWords":
+          return this._deleteMultipleWords(command.count);
 
         case "unknown":
         default:
@@ -556,6 +561,10 @@
         "summary",
         "[role='button']",
         "[role='link']",
+        "[role='tab']",
+        "[aria-expanded]",
+        "[data-toggle='collapse']",
+
         "[onclick]",
       ].join(",");
 
@@ -681,6 +690,76 @@
       target.value = value.replace(/\s*\S+\s*$/, " ");
       target.dispatchEvent(new Event("input", { bubbles: true }));
       this.overlayUI.showFeedback("Deleted last word", "info", 850);
+      return { ok: true };
+    }
+
+    _deleteAllWords() {
+      const target = this.domNavigator.focusBestEditable();
+      if (!target) {
+        this.overlayUI.showFeedback(
+          "Focus an input field first",
+          "warning",
+          1300,
+        );
+        return { ok: false, reason: "no_editable_target" };
+      }
+
+      if (target.isContentEditable) {
+        target.textContent = "";
+        this.overlayUI.showFeedback("Deleted all words", "info", 850);
+        return { ok: true };
+      }
+
+      target.value = "";
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+      this.overlayUI.showFeedback("Deleted all words", "info", 850);
+      return { ok: true };
+    }
+
+    _deleteMultipleWords(count) {
+      const target = this.domNavigator.focusBestEditable();
+      if (!target) {
+        this.overlayUI.showFeedback(
+          "Focus an input field first",
+          "warning",
+          1300,
+        );
+        return { ok: false, reason: "no_editable_target" };
+      }
+
+      const countNum = Number(count) || 1;
+      if (countNum < 1) {
+        this.overlayUI.showFeedback("Invalid word count", "warning", 850);
+        return { ok: false, reason: "invalid_count" };
+      }
+
+      if (target.isContentEditable) {
+        const text = String(target.textContent || "");
+        let result = text;
+        for (let i = 0; i < countNum; i++) {
+          result = result.replace(/\s*\S+\s*$/, " ");
+        }
+        target.textContent = result;
+        this.overlayUI.showFeedback(
+          `Deleted last ${countNum} word${countNum > 1 ? "s" : ""}`,
+          "info",
+          850,
+        );
+        return { ok: true };
+      }
+
+      const value = String(target.value || "");
+      let result = value;
+      for (let i = 0; i < countNum; i++) {
+        result = result.replace(/\s*\S+\s*$/, " ");
+      }
+      target.value = result;
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+      this.overlayUI.showFeedback(
+        `Deleted last ${countNum} word${countNum > 1 ? "s" : ""}`,
+        "info",
+        850,
+      );
       return { ok: true };
     }
   }

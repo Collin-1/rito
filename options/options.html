@@ -1,58 +1,52 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Rito Settings</title>
-    <link rel="stylesheet" href="options.css" />
-  </head>
-  <body>
-    <main class="layout">
-      <header class="hero">
-        <h1>Rito Settings</h1>
-        <p>
-          Configure voice behavior, accessibility, and custom command shortcuts.
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rito Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+
+<body>
+  <main class="layout">
+    <header class="hero">
+      <h1>Rito Settings</h1>
+      <p>
+        Configure voice behavior, accessibility, and custom command shortcuts.
+      </p>
+    </header>
+
+    <form id="settingsForm" class="settings-form">
+      <section class="card">
+        <h2>Speech</h2>
+
+        <label for="commandLanguage">Command language</label>
+        <select id="commandLanguage" name="commandLanguage">
+          <option value="en-US">English (United States)</option>
+          <option value="en-GB">English (United Kingdom)</option>
+          <option value="fr-FR">French (France)</option>
+          <option value="pt-BR">Portuguese (Brazil)</option>
+          <option value="es-ES">Spanish (Spain)</option>
+          <option value="de-DE">German (Germany)</option>
+        </select>
+
+        <label for="microphoneSensitivity">Microphone sensitivity threshold</label>
+        <input id="microphoneSensitivity" name="microphoneSensitivity" type="range" min="0" max="1" step="0.05" />
+        <output id="microphoneSensitivityValue" for="microphoneSensitivity"></output>
+        <p class="help">
+          Lower = more forgiving (catches quieter speech). Higher = stricter
+          (reduces false positives).
         </p>
-      </header>
 
-      <form id="settingsForm" class="settings-form">
-        <section class="card">
-          <h2>Speech</h2>
+        <label class="switch-row">
+          <input id="continuousListening" name="continuousListening" type="checkbox" />
+          <span>Keep continuous listening enabled</span>
+        </label>
 
-          <label for="commandLanguage">Command language</label>
-          <select id="commandLanguage" name="commandLanguage">
-            <option value="en-US">English (United States)</option>
-            <option value="en-GB">English (United Kingdom)</option>
-            <option value="fr-FR">French (France)</option>
-            <option value="pt-BR">Portuguese (Brazil)</option>
-            <option value="es-ES">Spanish (Spain)</option>
-            <option value="de-DE">German (Germany)</option>
-          </select>
-
-          <label for="microphoneSensitivity"
-            >Microphone sensitivity threshold (lower = more sensitive)</label
-          >
-          <input
-            id="microphoneSensitivity"
-            name="microphoneSensitivity"
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-          />
-          <output
-            id="microphoneSensitivityValue"
-            for="microphoneSensitivity"
-          ></output>
-
-          <label class="switch-row">
-            <input
-              id="continuousListening"
-              name="continuousListening"
-              type="checkbox"
-            />
-            <span>Keep continuous listening enabled</span>
-          </label>
+        <label for="hotword">Hotword (optional)</label>
+        <input id="hotword" name="hotword" type="text" maxlength="40" placeholder="Example: Hey Rito" />
+      </section>
 
           <label for="commandActivationMode">Command activation mode</label>
           <select id="commandActivationMode" name="commandActivationMode">
@@ -76,125 +70,101 @@
             placeholder="Example: Hey Rito"
           />
         </section>
+  
+      <section class="card">
+        <h2>Accessibility and reliability</h2>
 
-        <section class="card">
-          <h2>Accessibility and reliability</h2>
+        <label class="switch-row">
+          <input id="highContrast" name="highContrast" type="checkbox" />
+          <span>Use high contrast overlay mode</span>
+        </label>
 
-          <label class="switch-row">
-            <input id="highContrast" name="highContrast" type="checkbox" />
-            <span>Use high contrast overlay mode</span>
-          </label>
+        <label class="switch-row">
+          <input id="debugMode" name="debugMode" type="checkbox" />
+          <span>Enable debug logging</span>
+        </label>
 
-          <label class="switch-row">
-            <input id="debugMode" name="debugMode" type="checkbox" />
-            <span>Enable debug logging</span>
-          </label>
+        <label for="commandCooldownMs">Duplicate command cooldown (ms)</label>
+        <input id="commandCooldownMs" name="commandCooldownMs" type="number" min="150" max="3000" step="50" />
+      </section>
 
-          <label for="commandCooldownMs">Duplicate command cooldown (ms)</label>
-          <input
-            id="commandCooldownMs"
-            name="commandCooldownMs"
-            type="number"
-            min="150"
-            max="3000"
-            step="50"
-          />
-        </section>
+      <section class="card">
+        <h2>Custom command shortcuts</h2>
+        <p class="help">
+          Define phrase aliases mapped to existing commands. Example: phrase
+          "send now" -> command "click submit"
+        </p>
+        <div id="customCommandsList" class="command-list"></div>
+        <button id="addShortcutBtn" type="button" class="ghost-btn">
+          Add shortcut
+        </button>
+      </section>
+<section class="card">
+  <h2>AI intent and summarization</h2>
+  <p class="help">
+    AI parsing runs through the background worker so your API key stays
+    out of page context.
+  </p>
 
-        <section class="card">
-          <h2>AI intent and summarization</h2>
-          <p class="help">
-            AI parsing runs through the background worker so your API key stays
-            out of page context.
-          </p>
+  <label class="switch-row">
+    <input id="aiIntentEnabled" name="aiIntentEnabled" type="checkbox" />
+    <span>Enable AI intent recognition (Groq)</span>
+  </label>
 
-          <label class="switch-row">
-            <input
-              id="aiIntentEnabled"
-              name="aiIntentEnabled"
-              type="checkbox"
-            />
-            <span>Enable AI intent recognition (Groq)</span>
-          </label>
+  <label for="aiModel">Groq model</label>
+  <input id="aiModel" name="aiModel" type="text" placeholder="llama-3.3-70b-versatile" />
 
-          <label for="aiModel">Groq model</label>
-          <input
-            id="aiModel"
-            name="aiModel"
-            type="text"
-            placeholder="llama-3.3-70b-versatile"
-          />
+  <label for="aiApiKey">Groq API key</label>
+  <input
+    id="aiApiKey"
+    name="aiApiKey"
+    type="password"
+    autocomplete="off"
+    spellcheck="false"
+    placeholder="gsk_..."
+  />
 
-          <label for="aiApiKey">Groq API key</label>
-          <input
-            id="aiApiKey"
-            name="aiApiKey"
-            type="password"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="gsk_..."
-          />
-          <div class="inline-actions">
-            <button id="clearApiKeyBtn" type="button" class="ghost-btn">
-              Clear saved key
-            </button>
-            <span id="apiKeyState" class="help"></span>
-          </div>
+  <div class="inline-actions">
+    <button id="clearApiKeyBtn" type="button" class="ghost-btn">
+      Clear saved key
+    </button>
+    <span id="apiKeyState" class="help"></span>
+  </div>
 
-          <label for="aiTimeoutMs">AI request timeout (ms)</label>
-          <input
-            id="aiTimeoutMs"
-            name="aiTimeoutMs"
-            type="number"
-            min="3000"
-            max="60000"
-            step="500"
-          />
+  <label for="aiTimeoutMs">AI request timeout (ms)</label>
+  <input id="aiTimeoutMs" name="aiTimeoutMs" type="number" min="3000" max="60000" step="500" />
 
-          <label for="aiRequestDebounceMs">AI request debounce (ms)</label>
-          <input
-            id="aiRequestDebounceMs"
-            name="aiRequestDebounceMs"
-            type="number"
-            min="100"
-            max="2500"
-            step="50"
-          />
+  <label for="aiRequestDebounceMs">AI request debounce (ms)</label>
+  <input id="aiRequestDebounceMs" name="aiRequestDebounceMs" type="number" min="100" max="2500" step="50" />
 
-          <label for="aiCacheTtlMs">AI cache duration (ms)</label>
-          <input
-            id="aiCacheTtlMs"
-            name="aiCacheTtlMs"
-            type="number"
-            min="1000"
-            max="300000"
-            step="500"
-          />
-        </section>
+  <label for="aiCacheTtlMs">AI cache duration (ms)</label>
+  <input id="aiCacheTtlMs" name="aiCacheTtlMs" type="number" min="1000" max="300000" step="500" />
+</section>
 
-        <section class="card">
-          <h2>Custom command shortcuts</h2>
-          <p class="help">
-            Define phrase aliases mapped to existing commands. Example: phrase
-            "send now" -> command "click submit"
-          </p>
-          <div id="customCommandsList" class="command-list"></div>
-          <button id="addShortcutBtn" type="button" class="ghost-btn">
-            Add shortcut
-          </button>
-        </section>
+<section class="card">
+  <h2>Custom command shortcuts</h2>
+  <p class="help">
+    Define phrase aliases mapped to existing commands. Example: phrase
+    "send now" -> command "click submit"
+  </p>
+  <div id="customCommandsList" class="command-list"></div>
+  <button id="addShortcutBtn" type="button" class="ghost-btn">
+    Add shortcut
+  </button>
+</section>
 
-        <section class="actions">
-          <button type="submit" class="primary-btn">Save settings</button>
-          <button id="resetBtn" type="button" class="ghost-btn">
-            Reset defaults
-          </button>
-          <span id="saveStatus" role="status" aria-live="polite"></span>
-        </section>
-      </form>
-    </main>
+<section class="actions">
+  <button type="submit" class="primary-btn">Save settings</button>
+  <button id="resetBtn" type="button" class="ghost-btn">
+    Reset defaults
+  </button>
+  <span id="saveStatus" role="status" aria-live="polite"></span>
+</section>
+</form>
+</main>
 
-    <script src="../src/shared/constants.js"></script>
-    <script src="options.js"></script>
-  </body>
+  <script src="../src/shared/constants.js"></script>
+  <script src="options.js"></script>
+</body>
+
 </html>

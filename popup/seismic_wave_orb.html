@@ -1,0 +1,363 @@
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  .wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    padding: 1.5rem 0;
+    background: #151515;
+  }
+
+  canvas {
+    display: block;
+    cursor: pointer;
+  }
+
+  .lbl {
+    font-size: 11px;
+    color: #2299bb;
+    letter-spacing: 0.12em;
+    font-family: monospace;
+    text-transform: uppercase;
+  }
+
+  .btns {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .btn {
+    font-size: 11px;
+    padding: 5px 15px;
+    border-radius: 999px;
+    border: 0.5px solid #1a3344;
+    background: transparent;
+    color: #4499bb;
+    cursor: pointer;
+    font-family: monospace;
+    letter-spacing: 0.06em;
+    transition: all 0.15s;
+  }
+
+  .btn:hover {
+    border-color: #00aadd;
+    color: #00ddff;
+  }
+
+  .btn.on {
+    border-color: #00ccff;
+    color: #00ffff;
+    background: rgba(0, 200, 255, 0.06);
+  }
+
+  .sliders {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .sr {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #336677;
+    font-family: monospace;
+  }
+
+  .sr label {
+    min-width: 58px;
+  }
+
+  .sr input {
+    width: 140px;
+    accent-color: #0088cc;
+  }
+
+  .sr span {
+    min-width: 26px;
+    text-align: right;
+    color: #55aacc;
+  }
+</style>
+
+<div class="wrap">
+  <canvas id="cv" width="380" height="380"></canvas>
+  <div class="lbl" id="slbl">● idle</div>
+  <div class="btns">
+    <button class="btn on" id="bi" onclick="setState('idle')">Idle</button>
+    <button class="btn" id="bl" onclick="setState('listening')">Listening</button>
+    <button class="btn" id="bs" onclick="setState('speaking')">Speaking</button>
+    <button class="btn" id="bt" onclick="setState('thinking')">Thinking</button>
+    <button class="btn" id="mic-btn" onclick="toggleMicrophone()">🎙 Start Listening</button>
+  </div>
+  <div class="sliders">
+    <div class="sr"><label>Lines</label><input type="range" min="6" max="36" value="20"
+        oninput="cfg.nLines=+this.value;document.getElementById('vl').textContent=this.value"><span id="vl">20</span>
+    </div>
+    <div class="sr"><label>Wobble</label><input type="range" min="2" max="50" value="16"
+        oninput="cfg.wobble=+this.value;document.getElementById('vw').textContent=this.value"><span id="vw">16</span>
+    </div>
+    <div class="sr"><label>Speed</label><input type="range" min="1" max="12" value="3"
+        oninput="cfg.speed=+this.value;document.getElementById('vsp').textContent=this.value"><span id="vsp">3</span>
+    </div>
+    <div class="sr"><label>Glow</label><input type="range" min="1" max="10" value="5"
+        oninput="cfg.glow=+this.value;document.getElementById('vg').textContent=this.value"><span id="vg">5</span></div>
+  </div>
+</div>
+
+<script>
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height, CX = W / 2, CY = H / 2;
+
+  const cfg = { nLines: 20, wobble: 16, speed: 3, glow: 5 };
+
+  const STATES = {
+    idle: { ampMul: 0.45, spdMul: 0.5, hue0: 175, hue1: 230, label: '● idle' },
+    listening: { ampMul: 0.85, spdMul: 1.2, hue0: 160, hue1: 210, label: '◎ listening' },
+    speaking: { ampMul: 1.7, spdMul: 2.6, hue0: 180, hue1: 260, label: '▶ speaking' },
+    thinking: { ampMul: 0.7, spdMul: 0.75, hue0: 200, hue1: 280, label: '… thinking' },
+  };
+
+  let state = 'idle';
+  let cur = { amp: 0.45, spd: 0.5, hue0: 175, hue1: 230 };
+  let t = 0;
+
+  // ===== VOICE RESPONSIVENESS =====
+  let analyser = null;
+  let micStream = null;
+  let micActive = false;
+  let smoothAmp = 0;
+  let voiceAmpModifier = 1;
+  let silenceTimer = null;
+  const SPEECH_THRESHOLD = 0.08;
+  const SILENCE_DURATION = 600; // ms before switching from speaking back to listening
+
+  async function startMicrophone() {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(micStream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.75;
+      source.connect(analyser);
+      micActive = true;
+      setState('listening');
+      document.getElementById('mic-btn').textContent = '🔴 Listening...';
+      document.getElementById('mic-btn').classList.add('on');
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+      alert('Microphone access required for voice responsiveness');
+    }
+  }
+
+  function stopMicrophone() {
+    if (micStream) {
+      micStream.getTracks().forEach(track => track.stop());
+    }
+    analyser = null;
+    micStream = null;
+    micActive = false;
+    smoothAmp = 0;
+    voiceAmpModifier = 1;
+    if (silenceTimer) {
+      clearTimeout(silenceTimer);
+      silenceTimer = null;
+    }
+    setState('idle');
+    document.getElementById('mic-btn').textContent = '🎙 Start Listening';
+    document.getElementById('mic-btn').classList.remove('on');
+  }
+
+  function toggleMicrophone() {
+    if (micActive) {
+      stopMicrophone();
+    } else {
+      startMicrophone();
+    }
+  }
+
+  function getAudioAmplitude() {
+    if (!analyser) return 0;
+    const dataArr = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteTimeDomainData(dataArr);
+
+    // Calculate RMS (root mean square) for more stable amplitude reading
+    let sum = 0;
+    for (let i = 0; i < dataArr.length; i++) {
+      const normalized = (dataArr[i] / 128) - 1;
+      sum += normalized * normalized;
+    }
+    const rms = Math.sqrt(sum / dataArr.length);
+
+    // Scale to 0-1 range (silence ≈ 0.001, loud speech ≈ 0.3+)
+    return Math.min(rms * 8, 1);
+  }
+
+  function updateVoiceState() {
+    if (!micActive) return;
+
+    const rawAmp = getAudioAmplitude();
+
+    // Smooth amplitude: fast attack (0.30), slow decay (0.06)
+    const lerpK = rawAmp > smoothAmp ? 0.30 : 0.06;
+    smoothAmp = lerp(smoothAmp, rawAmp, lerpK);
+
+    // Use acoustic level to modulate the wobble effect
+    voiceAmpModifier = 1 + smoothAmp * 2;
+
+    // Speech detection: automatically toggle between listening and speaking
+    if (smoothAmp > SPEECH_THRESHOLD) {
+      // Voice detected
+      clearTimeout(silenceTimer);
+      silenceTimer = null;
+      if (state !== 'speaking') {
+        setState('speaking');
+      }
+    } else {
+      // Silence detected
+      if (!silenceTimer && state === 'speaking') {
+        silenceTimer = setTimeout(() => {
+          setState('listening');
+          silenceTimer = null;
+        }, SILENCE_DURATION);
+      }
+    }
+  }
+
+  function lerp(a, b, k) { return a + (b - a) * k; }
+
+  function setState(s) {
+    state = s;
+    document.getElementById('slbl').textContent = STATES[s].label;
+    ['idle', 'listening', 'speaking', 'thinking'].forEach(x => {
+      const ids = { idle: 'bi', listening: 'bl', speaking: 'bs', thinking: 'bt' };
+      document.getElementById(ids[x]).className = 'btn' + (x === s ? ' on' : '');
+    });
+  }
+
+  cv.addEventListener('click', () => {
+    const cycle = ['idle', 'listening', 'speaking', 'thinking'];
+    setState(cycle[(cycle.indexOf(state) + 1) % cycle.length]);
+  });
+
+  function seismicPath(ringR, lineSpacing, lineIdx, amplitude, timeOffset) {
+    const N = 220;
+    const pts = [];
+    const r = ringR + lineIdx * lineSpacing;
+
+    for (let i = 0; i <= N; i++) {
+      const angle = (i / N) * Math.PI * 2;
+
+      // Multiple overlapping sine waves for organic seismic feel
+      const w =
+        Math.sin(angle * 4 + timeOffset * 1.1) * amplitude * 0.40 +
+        Math.sin(angle * 7 - timeOffset * 0.85) * amplitude * 0.25 +
+        Math.sin(angle * 11 + timeOffset * 1.5) * amplitude * 0.15 +
+        Math.sin(angle * 2 - timeOffset * 0.55) * amplitude * 0.20 +
+        Math.sin(angle * 17 + timeOffset * 2.1) * amplitude * 0.08 +
+        Math.sin(angle * 6 + timeOffset * 0.4 + lineIdx * 0.3) * amplitude * 0.18;
+
+      const rr = r + w;
+      pts.push([CX + Math.cos(angle) * rr, CY + Math.sin(angle) * rr]);
+    }
+    return pts;
+  }
+
+  function hsl(h, s, l, a) {
+    return `hsla(${h},${s}%,${l}%,${a})`;
+  }
+
+  function draw() {
+    // Update voice state if microphone is active
+    updateVoiceState();
+
+    // Smooth state transitions
+    const tgt = STATES[state];
+    const k = 0.04;
+    cur.amp = lerp(cur.amp, tgt.ampMul, k);
+    cur.spd = lerp(cur.spd, tgt.spdMul, k);
+    cur.hue0 = lerp(cur.hue0, tgt.hue0, k);
+    cur.hue1 = lerp(cur.hue1, tgt.hue1, k);
+
+    t += 0.012 * cfg.speed * cur.spd;
+
+    // Black background
+    ctx.fillStyle = "#151515";
+    ctx.fillRect(0, 0, W, H);
+
+    const nL = cfg.nLines;
+    const innerR = 90;
+    const outerR = 155;
+    const bandW = outerR - innerR;
+    const spacing = bandW / (nL - 1);
+    // Voice modulates the amplitude in real-time
+    const amplitude = cfg.wobble * cur.amp * voiceAmpModifier;
+    const glowStr = cfg.glow / 5;
+
+    for (let li = 0; li < nL; li++) {
+      const frac = li / (nL - 1);  // 0 = inner, 1 = outer
+
+      // Hue: sweep from hue0 (cyan) to hue1 (purple/blue)
+      const hue = lerp(cur.hue0, cur.hue1, frac);
+      // Lightness: brightest at inner & outer edges, dimmer in mid band
+      const edge = 1 - Math.abs(frac - 0.5) * 2;
+      const light = lerp(65, 30, edge * 0.55);
+      // Alpha: lines near center of band slightly more transparent
+      const alpha = lerp(0.9, 0.35, edge * 0.6);
+
+      // Phase offset per line creates the "layered wave" feel
+      const tOff = t + li * 0.18;
+
+      const pts = seismicPath(innerR, spacing, li, amplitude, tOff);
+
+      // Glow pass (wider stroke, low opacity)
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+      ctx.closePath();
+      ctx.strokeStyle = hsl(hue, 100, 70, alpha * 0.18 * glowStr);
+      ctx.lineWidth = 3.5;
+      ctx.stroke();
+
+      // Crisp line pass
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+      ctx.closePath();
+      ctx.strokeStyle = hsl(hue, 95, light, alpha);
+      ctx.lineWidth = 0.75;
+      ctx.stroke();
+    }
+
+    // Extra glow bloom in the bright zones (top cyan, side blue)
+    const glowPasses = [
+      { angle: -Math.PI / 2, hue: 180, r: 120 },
+      { angle: Math.PI * 0.15, hue: 210, r: 120 },
+      { angle: Math.PI * 0.85, hue: 245, r: 120 },
+    ];
+    glowPasses.forEach(({ angle, hue, r }) => {
+      const bx = CX + Math.cos(angle) * r;
+      const by = CY + Math.sin(angle) * r;
+      const bloom = ctx.createRadialGradient(bx, by, 0, bx, by, 55 * glowStr);
+      bloom.addColorStop(0, hsl(hue, 100, 80, 0.13 * glowStr));
+      bloom.addColorStop(1, hsl(hue, 100, 60, 0));
+      ctx.fillStyle = bloom;
+      ctx.beginPath();
+      ctx.arc(bx, by, 55 * glowStr, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    requestAnimationFrame(draw);
+  }
+
+  draw();
+</script>

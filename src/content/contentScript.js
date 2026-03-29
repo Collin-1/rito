@@ -15,6 +15,7 @@
   let domNavigator;
   let overlayUI;
   let commandExecutor;
+  let orbInjector;
   let unsubscribeSettings;
   let lastWakeHintAt = 0;
 
@@ -248,6 +249,11 @@
       "info",
       1200,
     );
+    if (orbInjector) {
+      orbInjector.setStateFromOrb(
+        nextMode === Rito.COMMAND_MODES.DICTATION ? "speaking" : "listening"
+      );
+    }
     await persistRuntimeState({ mode: nextMode });
   }
 
@@ -370,6 +376,22 @@
       const listening = Boolean(event.detail.listening);
       runtimeState.listening = listening;
       persistRuntimeState({ listening });
+      if (orbInjector) {
+        orbInjector.setStateFromOrb(
+          listening ? "listening" : "idle"
+        );
+      }
+    });
+
+    speechEngine.addEventListener("audio-level", (event) => {
+      const level = event.detail.level || 0;
+      if (level > 10) {
+        overlayUI.showFeedback(
+          `Microphone active (${level}%)`,
+          "info",
+          500,
+        );
+      }
     });
   }
 
@@ -472,6 +494,9 @@
     logger.setDebugEnabled(Boolean(currentSettings.debugMode));
 
     overlayUI = new Rito.OverlayUI({ settings: currentSettings, logger });
+    orbInjector = new Rito.OrbInjector({ settings: currentSettings, logger });
+    orbInjector.inject();
+
     domNavigator = new Rito.DOMNavigator({ logger });
     commandParser = new Rito.CommandParser({
       settings: currentSettings,

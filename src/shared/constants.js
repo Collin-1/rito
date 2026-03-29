@@ -96,8 +96,11 @@
     "[role='button']",
     "[role='link']",
     "[role='menuitem']",
+    "[role='tab']",
+    "[aria-expanded]",
     "[tabindex]:not([tabindex='-1'])",
     "[onclick]",
+    "[data-toggle='collapse']",
     "[contenteditable='true']",
   ];
 

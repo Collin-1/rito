@@ -19,6 +19,9 @@
       this.restartTimer = null;
       this.armedUntil = 0;
       this.restartCount = 0;
+      this.mediaStream = null;
+      this.audioContext = null;
+      this.analyser = null;
     }
 
     updateSettings(nextSettings) {
@@ -70,6 +73,19 @@
           this.logger.debug("Ignoring stop error.", error);
         }
       }
+
+      if (this.mediaStream) {
+        this.mediaStream.getTracks().forEach((track) => {
+          track.stop();
+        });
+        this.mediaStream = null;
+      }
+
+      if (this.audioContext) {
+        this.audioContext.close();
+        this.audioContext = null;
+        this.analyser = null;
+      }
     }
 
     _getRecognitionCtor() {
@@ -87,7 +103,9 @@
       this.recognition.onstart = () => {
         this.restartCount = 0;
         this.isListening = true;
+        this._initializeAudioMonitoring();
         this._emit("listening-state", { listening: true });
+        this.logger.debug("Speech recognition started");
       };
 
       this.recognition.onresult = (event) => {
@@ -160,8 +178,13 @@
       const normalized = Rito.fuzzy.normalizeText(transcript);
       const now = Date.now();
 
+
       if (!normalized) {
         return { accepted: false, reason: "hotword_required" };
+      if (normalized === hotword) {
+        this.armedUntil = now + 10000;
+        this._emit("hotword", { hotword: this.settings.hotword, armed: true });
+        return { accepted: false, reason: "armed_only" };
       }
 
       const wakePhrases = this._getWakePhrases();
@@ -407,7 +430,7 @@
         if (result.isFinal) {
           const baseSensitivity = Math.max(
             0,
-            Math.min(1, Number(this.settings.microphoneSensitivity || 0)),
+            Math.min(1, this.settings.microphoneSensitivity * 0.5),
           );
           const confidenceBoost =
             String(this.settings.commandActivationMode) ===
@@ -418,6 +441,10 @@
           const gateResult = this._applyHotwordGate(transcript);
 
           if (!gateResult.accepted) {
+            this.logger.debug("Transcript rejected by hotword gate", {
+              reason: gateResult.reason,
+              transcript,
+            });
             this._emit("ignored", {
               reason: gateResult.reason,
               transcript,
@@ -427,6 +454,11 @@
           }
 
           if (confidence > 0 && confidence < minConfidence) {
+            this.logger.debug("Transcript rejected by confidence threshold", {
+              transcript,
+              confidence,
+              minConfidence,
+            });
             this._emit("ignored", {
               reason: "low_confidence",
               transcript,
@@ -435,6 +467,10 @@
             continue;
           }
 
+          this.logger.debug("Final transcript accepted", {
+            text: gateResult.text,
+            confidence,
+          });
           this._emit("final-transcript", {
             text: gateResult.text,
             confidence,
@@ -452,14 +488,23 @@
 
     _handleError(event) {
       const errorCode = event && event.error ? event.error : "unknown";
+      this.logger.warn("Speech recognition error", {
+        errorCode,
+        message: `Speech engine error: ${errorCode}`,
+      });
       this._emit("error", {
         code: errorCode,
         message: `Speech engine error: ${errorCode}`,
       });
 
       if (errorCode === "not-allowed" || errorCode === "service-not-allowed") {
+        this.logger.error("Microphone permission not granted");
         this.shouldRun = false;
         return;
+      }
+
+      if (errorCode === "audio-capture") {
+        this.logger.warn("No audio input detected on device");
       }
 
       if (this.shouldRun) {
@@ -469,6 +514,57 @@
 
     _emit(type, detail) {
       this.dispatchEvent(new CustomEvent(type, { detail: detail || {} }));
+    }
+
+    _initializeAudioMonitoring() {
+      if (this.analyser) {
+        return;
+      }
+
+      const AudioContext = root.AudioContext || root.webkitAudioContext;
+      if (!AudioContext) {
+        this.logger.debug("AudioContext not available for monitoring");
+        return;
+      }
+
+      try {
+        this.audioContext = new AudioContext();
+        navigator.mediaDevices
+          .getUserMedia({ audio: true })
+          .then((stream) => {
+            this.mediaStream = stream;
+            const source = this.audioContext.createMediaStreamSource(stream);
+            this.analyser = this.audioContext.createAnalyser();
+            source.connect(this.analyser);
+            this._monitorAudioLevel();
+          })
+          .catch((error) => {
+            this.logger.debug("Audio monitoring permission denied", error);
+          });
+      } catch (error) {
+        this.logger.debug("Failed to initialize audio monitoring", error);
+      }
+    }
+
+    _monitorAudioLevel() {
+      if (!this.isListening || !this.analyser) {
+        return;
+      }
+
+      const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+      this.analyser.getByteFrequencyData(dataArray);
+
+      const average =
+        dataArray.reduce((a, b) => a + b) / dataArray.length / 255;
+      const audioLevel = Math.round(average * 100);
+
+      if (audioLevel > 5) {
+        this._emit("audio-level", { level: audioLevel });
+      }
+
+      requestAnimationFrame(() => {
+        this._monitorAudioLevel();
+      });
     }
   }
 
