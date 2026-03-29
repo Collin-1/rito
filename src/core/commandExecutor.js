@@ -413,6 +413,7 @@
         "[role='tab']",
         "[aria-expanded]",
         "[data-toggle='collapse']",
+
         "[onclick]",
       ].join(",");
 
