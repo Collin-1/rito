@@ -3,10 +3,17 @@ importScripts(
   "../shared/logger.js",
   "../shared/storage.js",
   "../shared/fuzzy.js",
+  "./aiEngine.js",
 );
 
 const logger = Rito.createLogger("background");
 const browserActionTimestamps = new Map();
+const AI_MODEL_DEFAULT = "llama-3.3-70b-versatile";
+const LEGACY_AI_MODELS = new Set(["mixtral-8x7b-32768"]);
+const AI_CONFIG_DEFAULTS = {
+  apiKey: "",
+  timeoutMs: 12000,
+};
 
 const KNOWN_SITES = {
   google: "google.com",
@@ -24,6 +31,17 @@ async function initializeDefaults() {
   const currentSettings = await Rito.storage.getSettings();
   const merged = Object.assign({}, Rito.DEFAULT_SETTINGS, currentSettings);
   await chrome.storage.sync.set({ [Rito.STORAGE_KEYS.SETTINGS]: merged });
+  const existingAiConfig = await chrome.storage.local.get(
+    Rito.STORAGE_KEYS.AI_CONFIG,
+  );
+  const mergedAiConfig = Object.assign(
+    {},
+    AI_CONFIG_DEFAULTS,
+    existingAiConfig[Rito.STORAGE_KEYS.AI_CONFIG] || {},
+  );
+  await chrome.storage.local.set({
+    [Rito.STORAGE_KEYS.AI_CONFIG]: mergedAiConfig,
+  });
   logger.setDebugEnabled(Boolean(merged.debugMode));
 }
 
@@ -53,6 +71,123 @@ function errorResponse(error) {
     ok: false,
     error,
   };
+}
+
+function sanitizeAiConfig(config) {
+  const candidate = config || {};
+  const key = String(candidate.apiKey || "").trim();
+  const parsedTimeout = Number(candidate.timeoutMs);
+  const timeoutMs =
+    Number.isFinite(parsedTimeout) && parsedTimeout >= 3000
+      ? parsedTimeout
+      : AI_CONFIG_DEFAULTS.timeoutMs;
+  return {
+    hasApiKey: Boolean(key),
+    maskedApiKey: key
+      ? `${"*".repeat(Math.max(0, key.length - 4))}${key.slice(-4)}`
+      : "",
+    timeoutMs,
+  };
+}
+
+function resolveAiModel(candidateModel) {
+  const model = String(candidateModel || "").trim();
+  if (!model || LEGACY_AI_MODELS.has(model)) {
+    return AI_MODEL_DEFAULT;
+  }
+  return model;
+}
+
+async function getAiConfig() {
+  const raw = await chrome.storage.local.get(Rito.STORAGE_KEYS.AI_CONFIG);
+  return Object.assign(
+    {},
+    AI_CONFIG_DEFAULTS,
+    raw[Rito.STORAGE_KEYS.AI_CONFIG] || {},
+  );
+}
+
+async function updateAiConfig(partial) {
+  const patch = partial || {};
+  const current = await getAiConfig();
+
+  const next = Object.assign({}, current);
+  if (patch.clearApiKey) {
+    next.apiKey = "";
+  } else if (typeof patch.apiKey === "string") {
+    const normalized = patch.apiKey.trim();
+    if (normalized) {
+      next.apiKey = normalized;
+    }
+  }
+
+  if (patch.timeoutMs !== undefined) {
+    const parsedTimeout = Number(patch.timeoutMs);
+    if (Number.isFinite(parsedTimeout) && parsedTimeout >= 3000) {
+      next.timeoutMs = parsedTimeout;
+    }
+  }
+
+  await chrome.storage.local.set({
+    [Rito.STORAGE_KEYS.AI_CONFIG]: next,
+  });
+
+  return next;
+}
+
+async function parseIntentWithAi(payload) {
+  const transcript = String((payload && payload.transcript) || "").trim();
+  if (!transcript) {
+    return errorResponse("Transcript is empty.");
+  }
+
+  const settings = await Rito.storage.getSettings();
+  if (!settings.aiIntentEnabled) {
+    return errorResponse("AI intent is disabled in settings.");
+  }
+
+  const aiConfig = await getAiConfig();
+  if (!aiConfig.apiKey) {
+    return errorResponse("Groq API key is not configured.");
+  }
+
+  const result = await Rito.aiEngine.parseIntent({
+    apiKey: aiConfig.apiKey,
+    model: resolveAiModel(settings.aiModel),
+    transcript,
+    context: (payload && payload.context) || {},
+    debounceMs: Number(settings.aiRequestDebounceMs || 450),
+    cacheTtlMs: Number(settings.aiCacheTtlMs || 45000),
+    timeoutMs: Number(aiConfig.timeoutMs || AI_CONFIG_DEFAULTS.timeoutMs),
+  });
+
+  if (!result || !result.intent) {
+    return errorResponse("AI intent could not be resolved.");
+  }
+
+  return okResponse("AI intent resolved", result.intent);
+}
+
+async function summarizeWithAi(payload) {
+  const settings = await Rito.storage.getSettings();
+  if (!settings.aiIntentEnabled) {
+    return errorResponse("AI intent is disabled in settings.");
+  }
+
+  const aiConfig = await getAiConfig();
+  if (!aiConfig.apiKey) {
+    return errorResponse("Groq API key is not configured.");
+  }
+
+  const result = await Rito.aiEngine.summarizePage({
+    apiKey: aiConfig.apiKey,
+    model: resolveAiModel(settings.aiModel),
+    context: (payload && payload.context) || {},
+    cacheTtlMs: Math.max(10000, Number(settings.aiCacheTtlMs || 45000)),
+    timeoutMs: Number(aiConfig.timeoutMs || AI_CONFIG_DEFAULTS.timeoutMs),
+  });
+
+  return okResponse("Page summary generated", result.summary);
 }
 
 function getCommandCooldownMs() {
@@ -452,8 +587,28 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         sendResponse({ ok: true, data: updated });
         return;
       }
+      case Rito.MESSAGE_TYPES.GET_AI_CONFIG: {
+        const aiConfig = await getAiConfig();
+        sendResponse({ ok: true, data: sanitizeAiConfig(aiConfig) });
+        return;
+      }
+      case Rito.MESSAGE_TYPES.UPDATE_AI_CONFIG: {
+        const updatedAiConfig = await updateAiConfig(payload);
+        sendResponse({ ok: true, data: sanitizeAiConfig(updatedAiConfig) });
+        return;
+      }
       case Rito.MESSAGE_TYPES.PING: {
         sendResponse({ ok: true, data: { alive: true } });
+        return;
+      }
+      case Rito.MESSAGE_TYPES.AI_PARSE_INTENT: {
+        const result = await parseIntentWithAi(payload);
+        sendResponse(result);
+        return;
+      }
+      case Rito.MESSAGE_TYPES.AI_SUMMARIZE_PAGE: {
+        const result = await summarizeWithAi(payload);
+        sendResponse(result);
         return;
       }
       case Rito.MESSAGE_TYPES.BROWSER_COMMAND: {
